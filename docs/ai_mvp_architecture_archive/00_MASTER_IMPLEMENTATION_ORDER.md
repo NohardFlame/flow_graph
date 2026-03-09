@@ -23,6 +23,9 @@ The goal is to keep the coding agent from building modules in an order that crea
 5. **No LLM integration before deterministic preprocessing exists.**
    The LLM should sit on top of stable inputs: parsed documents, assembled chunks, prefilter scores, and validated persistence.
 
+6. **Use virtual environment**
+   All dependencies should be installed in .venv virtual environment. All commands should be run, using this environment
+
 ---
 
 ## Reading order for the coding agent
