@@ -18,6 +18,10 @@ class DocumentRepository:
     def get(self, document_id: str) -> Document | None:
         return self._session.get(Document, document_id)
 
+    def get_version(self, version_id: str) -> DocumentVersion | None:
+        """Return a document version by id (e.g. run.document_version_id)."""
+        return self._session.get(DocumentVersion, version_id)
+
     def get_latest_version(self, document_id: str) -> DocumentVersion | None:
         """Return the latest document version by version_number, or None if no versions."""
         result = self._session.execute(

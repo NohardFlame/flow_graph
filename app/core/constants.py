@@ -7,12 +7,30 @@ from enum import StrEnum
 
 
 class RunStatus(StrEnum):
-    """Processing run lifecycle (placeholder for Phase 1+)."""
+    """Processing run lifecycle. Aligns with PublicRunStatus for API."""
 
     PENDING = "pending"
+    QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
+    PARTIAL_SUCCESS = "partial_success"
+    CANCELLED = "cancelled"
+
+
+# Ordered pipeline steps for run orchestration (Phase 8). Each step is callable independently for resume/debug.
+RUN_PIPELINE_STEPS = (
+    "ingest_ready",
+    "parse_document",
+    "build_chunks",
+    "prefilter_chunks",
+    "extract_actions",
+    "normalize_actions",
+    "persist_results",
+    "optional_index",
+    "complete_run",
+)
 
 
 class JobStatus(StrEnum):
