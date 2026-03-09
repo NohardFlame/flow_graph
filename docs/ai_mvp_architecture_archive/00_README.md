@@ -1,5 +1,7 @@
 # AI MVP Architecture Archive
 
+**Python:** Use 3.12 or 3.13. Python 3.14 is not supported (spaCy prefilter pattern matching requires 3.12/3.13).
+
 This archive defines an implementation-ready MVP architecture for a cloud service that:
 
 - accepts multiple source documents,

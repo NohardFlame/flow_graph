@@ -1,0 +1,10 @@
+# State indicators
+state
+status
+pending
+completed
+active
+inactive
+draft
+approved
+rejected

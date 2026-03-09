@@ -7,10 +7,21 @@ name = "flow-graph"
 version = "0.1.0"
 description = "Action-centric document extraction MVP"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
+    "boto3>=1.34",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
     "pydantic>=2",
     "pydantic-settings>=2",
+    "sqlalchemy>=2",
+    "alembic",
+    "psycopg[binary]",
+    "docling>=2.0",
+    "spacy>=3.7",
+    "scikit-learn>=1.3",
     "pytest>=7",
     "pytest-cov>=4",
 ]
@@ -19,6 +30,9 @@ dependencies = [
 dev = [
     "pytest>=7",
     "pytest-cov>=4",
+]
+normalization = [
+    "unidecode>=1.3",
 ]
 
 [tool.setuptools.packages.find]

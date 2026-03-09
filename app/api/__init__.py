@@ -1,1 +1,1 @@
-"""HTTP API (empty in Phase 0)."""
+"""API package: FastAPI app, routes, schemas, dependencies."""

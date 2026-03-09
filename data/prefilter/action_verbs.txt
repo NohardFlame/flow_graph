@@ -1,0 +1,14 @@
+# Action verbs for extraction (one per line, normalized lowercase)
+perform
+execute
+submit
+approve
+reject
+edit
+view
+create
+delete
+update
+validate
+confirm
+cancel

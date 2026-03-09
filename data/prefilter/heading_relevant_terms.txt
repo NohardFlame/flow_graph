@@ -1,0 +1,12 @@
+# Heading path relevance (process, status, role, permission)
+process
+procedure
+status
+role
+permission
+restriction
+rules
+policy
+actions
+workflow
+validation

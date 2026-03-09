@@ -22,3 +22,11 @@ class JobStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     DONE = "done"
     FAILED = "failed"
+
+
+class PrefilterDecision(StrEnum):
+    """Chunk prefilter outcome: keep, gray zone, or reject."""
+
+    KEEP = "keep"
+    GRAY = "gray"
+    REJECT = "reject"

@@ -1,0 +1,3 @@
+# role_aliases: alias -> canonical (one per line)
+# user -> applicant
+# admin -> administrator

@@ -1,0 +1,9 @@
+# Restriction / must not / prohibited
+restriction
+must not
+prohibited
+forbidden
+cannot
+shall not
+denied
+blocked

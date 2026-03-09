@@ -28,6 +28,30 @@ The goal is to keep the coding agent from building modules in an order that crea
 
 ---
 
+## Test database credentials (for local testing)
+
+Use these environment variables when running migrations or tests against a local PostgreSQL test database. Ensure PostgreSQL is running and the database `app_test` exists (create with `createdb app_test` if needed).
+
+**PowerShell:**
+
+```powershell
+$env:ENVIRONMENT = "test"
+$env:POSTGRES_DB = "app_test"
+$env:POSTGRES_USER = "postgres"
+$env:POSTGRES_PASSWORD = "postgres"
+$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_PORT = "5432"
+```
+
+**Then run migrations and tests:**
+
+```powershell
+.venv\Scripts\python -m alembic upgrade head
+.venv\Scripts\python -m pytest tests/db tests/api -v --tb=short
+```
+
+---
+
 ## Reading order for the coding agent
 
 Before coding, read these files in this order:

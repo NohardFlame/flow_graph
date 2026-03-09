@@ -1,0 +1,1 @@
+This is not valid markdown structure \x00 and has null byte.

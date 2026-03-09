@@ -1,0 +1,9 @@
+# Actor / role
+user
+admin
+system
+administrator
+role
+actor
+approver
+validator

@@ -1,0 +1,3 @@
+# fixture role aliases
+user -> applicant
+admin -> administrator

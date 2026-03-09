@@ -1,0 +1,9 @@
+# Object / entity domain
+document
+request
+record
+form
+application
+workflow
+task
+action

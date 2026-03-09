@@ -39,3 +39,19 @@ class ExtractionError(DomainError):
 
 class NormalizationError(DomainError):
     """Normalization or canonical key derivation failed."""
+
+
+class StorageError(DomainError):
+    """Base for object storage failures."""
+
+
+class StorageNotFoundError(StorageError):
+    """Object not found in storage (e.g. missing key)."""
+
+
+class NotFoundError(DomainError):
+    """Resource not found (e.g. document or run by id)."""
+
+
+class ConflictError(DomainError):
+    """Conflict with current state (e.g. duplicate active run)."""

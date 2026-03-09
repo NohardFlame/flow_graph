@@ -2,7 +2,21 @@
 
 Use monkeypatch for env; avoid patching Pydantic or internal helpers.
 Do not share mutated settings across tests.
+
+Default test env (ENVIRONMENT, POSTGRES_*) is set so API/DB/services/migration
+tests run without manual setup. Config tests that need missing-required use
+monkeypatch.delenv and reset_settings_cache().
 """
+
+import os
+
+# Allow full test suite to run without setting env (API, DB, services, migration subprocess)
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("POSTGRES_DB", "app_test")
+os.environ.setdefault("POSTGRES_USER", "postgres")
+os.environ.setdefault("POSTGRES_PASSWORD", "postgres")
+os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_PORT", "5432")
 
 import pytest
 

@@ -1,0 +1,9 @@
+# Seeded queries for TF-IDF lexical score (one per line)
+user action
+system action
+state transition
+permission
+restriction
+validation rule
+approval
+workflow step

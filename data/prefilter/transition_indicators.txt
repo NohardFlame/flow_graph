@@ -1,0 +1,6 @@
+# State transition
+transition
+change to
+moves to
+becomes
+from ... to

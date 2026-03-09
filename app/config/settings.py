@@ -28,6 +28,9 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="API_", extra="ignore")
     host: str = "0.0.0.0"
     port: int = 8000
+    max_upload_bytes: int = 50 * 1024 * 1024  # 50 MiB
+    allowed_extensions: str = "pdf,doc,docx,txt,md"  # comma-separated
+    allowed_content_types: str = "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"  # comma-separated
 
 
 class PostgresSettings(BaseSettings):
@@ -40,7 +43,7 @@ class PostgresSettings(BaseSettings):
 
     @property
     def dsn(self) -> str:
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
+        return f"postgresql+psycopg://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
 
 
 class RedisSettings(BaseSettings):
@@ -69,7 +72,32 @@ class LiteLLMSettings(BaseSettings):
 
 class PrefilterSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PREFILTER_", extra="ignore")
+    # Legacy single threshold (used as gray_threshold if accept/gray not set)
     threshold: float = 0.3
+    # Weights per feature group (0 = disabled)
+    weight_structural_heading: float = 0.15
+    weight_structural_table_list: float = 0.1
+    weight_structural_depth: float = 0.05
+    weight_structural_appendix_penalty: float = -0.2
+    weight_exact_match: float = 0.25
+    weight_pattern: float = 0.2
+    weight_context_boost: float = 0.15
+    weight_lexical: float = 0.1
+    # Thresholds: score >= accept -> keep; gray_threshold <= score < accept -> gray; < gray_threshold -> reject
+    accept_threshold: float = 0.5
+    gray_threshold: float = 0.3
+    top_gray_budget_per_document: int = 10
+    gray_adjacent_to_accepted: bool = True
+    # Lexicon and resources
+    lexicon_dir: str = "data/prefilter"
+    spacy_model: str = "en_core_web_sm"
+    enable_pattern_matching: bool = True
+
+
+class NormalizationSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="NORMALIZATION_", extra="ignore")
+    config_dir: str = "data/normalization"
+    normalization_version: str = "v1"
 
 
 class WorkerSettings(BaseSettings):
@@ -119,6 +147,7 @@ class Settings(BaseSettings):
     docling: DoclingSettings = Field(default_factory=DoclingSettings)
     litellm: LiteLLMSettings = Field(default_factory=LiteLLMSettings)
     prefilter: PrefilterSettings = Field(default_factory=PrefilterSettings)
+    normalization: NormalizationSettings = Field(default_factory=NormalizationSettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
