@@ -1,5 +1,6 @@
 """Domain models."""
 
+from app.domain.extraction_models import ExtractionResult, RepairResult
 from app.domain.normalization_models import (
     CollisionRecord,
     ExtractionDraft,
@@ -17,7 +18,9 @@ __all__ = [
     "CollisionRecord",
     "ExtractionChunk",
     "ExtractionDraft",
+    "ExtractionResult",
     "NormalizedActionRecord",
     "ParsedDocument",
+    "RepairResult",
     "SectionUnit",
 ]

@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, BinaryIO, Protocol
 
 from app.core.types import ActionId, ChunkId, DocumentId, ObjectMetadata, RunId
-from app.domain.parse_models import ParsedDocument
+from app.domain.extraction_models import ExtractionResult, RepairResult
+from app.domain.parse_models import ExtractionChunk, ParsedDocument
 
 
 class ClockProtocol(Protocol):
@@ -56,9 +57,15 @@ class DocumentParserProtocol(Protocol):
 
 
 class LLMClientProtocol(Protocol):
-    """LLM gateway for extraction."""
+    """LLM gateway for extraction.
 
-    def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str: ...
+    Implementors must wrap provider exceptions into RetryableExternalError,
+    PermanentExternalError, or ExtractionError (no raw vendor exceptions).
+    """
+
+    def extract_actions(self, chunk: ExtractionChunk, prompt_cfg: Any) -> ExtractionResult: ...
+
+    def repair_json(self, raw_output: str, schema_cfg: Any) -> RepairResult: ...
 
 
 class VectorIndexProtocol(Protocol):

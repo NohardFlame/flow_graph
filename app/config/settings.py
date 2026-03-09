@@ -68,6 +68,10 @@ class LiteLLMSettings(BaseSettings):
     api_key: str = ""
     model: str = "gpt-4o-mini"
     base_url: str | None = None
+    fallback_model: str | None = None
+    max_retries: int = 2
+    request_timeout: int = 60
+    repair_max_attempts: int = 1
 
 
 class PrefilterSettings(BaseSettings):
