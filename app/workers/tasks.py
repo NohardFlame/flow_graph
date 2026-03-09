@@ -31,7 +31,7 @@ def process_run_job(
     session = session_factory()
     try:
         orchestrator = orchestrator_factory(session)
-        orchestrator.execute_run(job.run_id)
+        orchestrator.execute_run(job.run_id, correlation_id=job.correlation_id)
         session.commit()
     except Exception as e:
         session.rollback()

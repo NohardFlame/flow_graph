@@ -10,6 +10,7 @@ class RunJobPayload:
     run_id: str
     document_id: str | None = None
     attempt: int = 0
+    correlation_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "RunJobPayload":
@@ -21,6 +22,7 @@ class RunJobPayload:
             run_id=str(run_id),
             document_id=str(data["document_id"]) if data.get("document_id") is not None else None,
             attempt=int(data["attempt"]) if data.get("attempt") is not None else 0,
+            correlation_id=str(data["correlation_id"]) if data.get("correlation_id") else None,
         )
 
     def to_dict(self) -> dict:
@@ -30,4 +32,6 @@ class RunJobPayload:
             out["document_id"] = self.document_id
         if self.attempt != 0:
             out["attempt"] = self.attempt
+        if self.correlation_id is not None:
+            out["correlation_id"] = self.correlation_id
         return out

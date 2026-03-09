@@ -7,16 +7,19 @@ from app.api.schemas import (
     ActionListResponse,
     ChunkItem,
     ChunkListResponse,
+    RunEventItem,
+    RunEventsResponse,
     RunResponse,
     internal_status_to_public,
 )
 from app.api.deps import (
     get_action_repo,
     get_chunk_repo,
+    get_run_event_repo,
     get_run_repo,
 )
 from app.core.errors import NotFoundError
-from app.db.repositories import ActionRepository, ChunkRepository, RunRepository
+from app.db.repositories import ActionRepository, ChunkRepository, RunEventRepository, RunRepository
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 @router.get("/{run_id}", response_model=RunResponse)
@@ -35,6 +38,32 @@ def get_run(
         started_at=run.started_at,
         finished_at=run.finished_at,
         error_message=run.error_message,
+        error_code=run.error_code,
+        current_step=run.current_step,
+    )
+
+
+@router.get("/{run_id}/events", response_model=RunEventsResponse)
+def get_run_events(
+    run_id: str,
+    run_repo: RunRepository = Depends(get_run_repo),
+    run_event_repo: RunEventRepository = Depends(get_run_event_repo),
+):
+    """Return run step events for debugging. 404 if run not found."""
+    run = run_repo.get(run_id)
+    if run is None:
+        raise NotFoundError(f"Run not found: {run_id}")
+    events = run_event_repo.list_by_run(run_id)
+    return RunEventsResponse(
+        items=[
+            RunEventItem(
+                step=e.step,
+                event_type=e.event_type,
+                created_at=e.created_at,
+                payload=e.payload_jsonb,
+            )
+            for e in events
+        ]
     )
 
 

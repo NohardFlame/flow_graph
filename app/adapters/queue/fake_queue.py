@@ -12,6 +12,10 @@ class FakeJobQueue:
     def enqueue(self, payload: dict[str, Any]) -> None:
         self._payloads.append(payload)
 
+    def ping(self) -> bool:
+        """Health check: fake is always ready."""
+        return True
+
     def clear(self) -> None:
         self._payloads.clear()
 

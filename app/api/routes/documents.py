@@ -1,11 +1,13 @@
 """Document upload and metadata endpoints."""
 
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, UploadFile, Request, status
 
 from app.api.schemas import DocumentCreatedResponse, DocumentResponse, RunCreatedResponse
-from app.api.deps import get_document_repo, get_ingest_service, get_queue, get_run_repo
+from app.api.deps import get_document_repo, get_ingest_service, get_metrics, get_queue, get_run_repo
+from app.config.logging import get_logger, log_structured
 from app.config.settings import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db.repositories import DocumentRepository, RunRepository
@@ -13,6 +15,7 @@ from app.db.models import Run
 from app.services.ingest_service import IngestService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+_log = get_logger(__name__)
 
 
 def _allowed_extensions_set() -> set[str]:
@@ -42,6 +45,7 @@ def _validate_upload(filename: str, content_type: str, size: int) -> None:
 async def upload_document(
     file: UploadFile = File(...),
     ingest_service: IngestService = Depends(get_ingest_service),
+    metrics=Depends(get_metrics),
 ):
     """Upload a document. Creates document and first version; does not create a run."""
     filename = file.filename or "unnamed"
@@ -53,6 +57,15 @@ async def upload_document(
         raise ValidationError(f"File size exceeds maximum allowed ({max_bytes} bytes)")
     _validate_upload(filename, content_type, len(body))
     document = ingest_service.ingest(body, filename, content_type)
+    metrics.record_document_uploaded()
+    log_structured(
+        _log,
+        logging.INFO,
+        "upload accepted; storage write complete",
+        event="storage_write_complete",
+        module="api.documents",
+        document_id=document.id,
+    )
     return DocumentCreatedResponse(
         id=document.id,
         original_filename=document.original_filename,
@@ -85,10 +98,12 @@ def get_document(
     status_code=status.HTTP_202_ACCEPTED,
 )
 def create_run(
+    request: Request,
     document_id: str,
     document_repo: DocumentRepository = Depends(get_document_repo),
     run_repo: RunRepository = Depends(get_run_repo),
     queue=Depends(get_queue),
+    metrics=Depends(get_metrics),
 ):
     """Create a run for the document and enqueue it. 404 if document missing; 409 if active run exists."""
     document = document_repo.get(document_id)
@@ -110,5 +125,21 @@ def create_run(
         status="queued",
     )
     run_repo.save(run)
-    queue.enqueue({"run_id": run_id})
+    # Pass correlation_id so worker logs can be tied to this request
+    payload = {"run_id": run_id}
+    correlation_id = getattr(request.state, "correlation_id", "") or ""
+    if correlation_id:
+        payload["correlation_id"] = correlation_id
+    queue.enqueue(payload)
+    metrics.record_run_started()
+    log_structured(
+        _log,
+        logging.INFO,
+        "run created; job enqueued",
+        event="run_created",
+        module="api.documents",
+        document_id=document_id,
+        run_id=run_id,
+        correlation_id=correlation_id or None,
+    )
     return RunCreatedResponse(id=run_id, document_id=document_id)

@@ -68,11 +68,24 @@ class RunResponse(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    error_code: str | None = None
+    current_step: str | None = None
 
 
 class RunCreatedResponse(BaseModel):
     id: str
     document_id: str
+
+
+class RunEventItem(BaseModel):
+    step: str
+    event_type: str
+    created_at: datetime
+    payload: dict[str, Any] | None = None
+
+
+class RunEventsResponse(BaseModel):
+    items: list[RunEventItem]
 
 
 # --- Chunks (paginated) ---

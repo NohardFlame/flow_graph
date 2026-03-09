@@ -52,3 +52,32 @@ class ARQJobQueue:
                 "ARQJobQueue.enqueue is synchronous; call from sync context or use enqueue_async."
             )
         loop.run_until_complete(_enqueue())
+
+    def ping(self) -> bool:
+        """Health check: verify Redis is reachable. Returns True if PING succeeds."""
+        try:
+            import asyncio
+            import redis.asyncio as redis
+        except ImportError:
+            return False
+        from app.config.settings import get_settings
+        url = get_settings().redis.url
+
+        async def _ping() -> bool:
+            r = redis.from_url(url)
+            try:
+                await r.ping()
+                return True
+            except Exception:
+                return False
+            finally:
+                await r.aclose()
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        if loop.is_running():
+            return False
+        return loop.run_until_complete(_ping())

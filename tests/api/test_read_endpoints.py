@@ -50,7 +50,9 @@ def test_get_run_maps_internal_status_to_public_enum(api_client: TestClient, fak
     assert get_run.status_code == 200
     data = get_run.json()
     assert data["status"] == "queued"
-    assert "current_step" not in data
+    # Phase 9: run diagnostics include error_code and current_step (may be null)
+    assert "current_step" in data
+    assert "error_code" in data
 
 
 def test_get_run_chunks_paginated(api_client_shared_session, fake_queue):

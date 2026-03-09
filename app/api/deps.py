@@ -10,6 +10,7 @@ from app.db.repositories import (
     ActionRepository,
     ChunkRepository,
     DocumentRepository,
+    RunEventRepository,
     RunRepository,
 )
 from app.services.ingest_service import IngestService
@@ -67,8 +68,19 @@ def get_action_repo(
     return ActionRepository(session)
 
 
+def get_run_event_repo(
+    session: Session = Depends(get_db_session),
+) -> RunEventRepository:
+    return RunEventRepository(session)
+
+
 def get_ingest_service(
     storage: ObjectStorageProtocol = Depends(get_storage),
     document_repo: DocumentRepository = Depends(get_document_repo),
 ) -> IngestService:
     return IngestService(storage, document_repo)
+
+
+def get_metrics(request: Request):
+    """Return the metrics recorder from app state (always set by create_app)."""
+    return request.app.state.metrics

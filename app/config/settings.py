@@ -119,6 +119,8 @@ class QdrantSettings(BaseSettings):
 class ObservabilitySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OBS_", extra="ignore")
     log_level: str = "INFO"
+    enable_debug_artifacts: bool = False
+    step_timeout_seconds: int | None = None
 
 
 # --- Root settings ---

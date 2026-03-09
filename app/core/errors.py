@@ -55,3 +55,7 @@ class NotFoundError(DomainError):
 
 class ConflictError(DomainError):
     """Conflict with current state (e.g. duplicate active run)."""
+
+
+class InternalError(DomainError):
+    """Internal bug or unexpected error; retries will not fix."""

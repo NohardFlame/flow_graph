@@ -99,9 +99,11 @@ def create_app(
     storage: Any,
     queue: Any,
     session_factory: Any = None,
+    metrics: Any = None,
 ) -> FastAPI:
     """Create FastAPI app with routes and dependencies. Caller wires storage and queue."""
     from app.db.session import get_session_factory
+    from app.core.metrics import NoOpMetricsRecorder
 
     app = FastAPI(title="flow-graph", version="0.1.0")
     app.add_middleware(CorrelationIdMiddleware)
@@ -109,6 +111,7 @@ def create_app(
     app.state.storage = storage
     app.state.queue = queue
     app.state.session_factory = session_factory or get_session_factory()
+    app.state.metrics = metrics if metrics is not None else NoOpMetricsRecorder()
 
     app.include_router(documents.router)
     app.include_router(runs.router)

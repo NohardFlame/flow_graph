@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional
 
 from app.adapters.llm.retry_repair import ExtractActionsProtocol, extract_with_retry
 from app.core.constants import RUN_PIPELINE_STEPS, RunStatus
-from app.core.errors import NotFoundError, StorageNotFoundError
+from app.core.errors import NotFoundError, ParsingError, StorageNotFoundError, ValidationError
+from app.core.metrics import MetricsRecorder
 from app.core.normalization_config import NormalizationConfig
 from app.core.protocols import (
     ClockProtocol,
@@ -29,7 +31,10 @@ from app.services.normalization_service import normalize_batch
 from app.services.parse_artifact_service import save_parse_artifacts
 from app.services.prefilter.prefilter_models import PrefilterResult
 from app.services.prefilter.service import PrefilterService
+from app.config.logging import get_logger, log_structured
 from app.workers.retry_policy import error_code_for_run, is_run_step_retryable
+
+_LOG = get_logger(__name__)
 
 
 def _chunk_to_extraction_chunk(c: Chunk) -> ExtractionChunk:
@@ -78,6 +83,8 @@ class RunOrchestrator:
         clock: ClockProtocol,
         max_extract_retries: int = 2,
         extraction_prompt_cfg: dict[str, Any] | None = None,
+        optional_indexer: Optional[Callable[[str], None]] = None,
+        metrics: Optional[MetricsRecorder] = None,
     ) -> None:
         self._run_repo = run_repo
         self._document_repo = document_repo
@@ -94,8 +101,10 @@ class RunOrchestrator:
         self._clock = clock
         self._max_extract_retries = max_extract_retries
         self._prompt_cfg = extraction_prompt_cfg or {"prompt_version": "v1", "schema_version": "v1"}
+        self._optional_indexer = optional_indexer
+        self._metrics = metrics
 
-    def execute_run(self, run_id: str) -> None:
+    def execute_run(self, run_id: str, correlation_id: Optional[str] = None) -> None:
         """Run pipeline steps until done or failed. Persists step completion and events."""
         run = self._run_repo.get(run_id)
         if run is None:
@@ -109,6 +118,18 @@ class RunOrchestrator:
             self._run_repo.update_status(run_id, RunStatus.RUNNING, started_at=now)
         else:
             self._run_repo.update_status(run_id, RunStatus.RUNNING)
+        if self._metrics is not None:
+            self._metrics.record_run_started()
+        log_structured(
+            _LOG,
+            logging.INFO,
+            "run started",
+            event="run_started",
+            module="run_orchestration",
+            run_id=run_id,
+            document_id=run.document_id if run else None,
+            correlation_id=correlation_id,
+        )
 
         # In-memory context for steps that pass data to the next
         parsed_document: ParsedDocument | None = None
@@ -117,9 +138,18 @@ class RunOrchestrator:
         normalized_with_meta: list[Any] = []
 
         while True:
-            next_step = self._get_next_step(self._run_repo.get(run_id))
+            run = self._run_repo.get(run_id)
+            next_step = self._get_next_step(run)
             if next_step is None:
                 break
+
+            # Emit step started or retried (resume path)
+            event_type = "retried" if (run and run.current_step == next_step) else "started"
+            payload: dict[str, Any] = {}
+            if run and run.document_id:
+                payload["document_id"] = run.document_id
+            self._run_event_repo.append(run_id, next_step, event_type, payload or None)
+            step_start = self._clock.now()
 
             try:
                 if next_step == "ingest_ready":
@@ -139,17 +169,66 @@ class RunOrchestrator:
                 elif next_step == "persist_results":
                     self._step_persist_results(run_id, normalized_with_meta)
                 elif next_step == "optional_index":
-                    pass  # no-op for MVP
+                    if self._optional_indexer is not None:
+                        try:
+                            self._optional_indexer(run_id)
+                        except Exception as e:
+                            self._run_repo.update_status(
+                                run_id,
+                                RunStatus.PARTIAL_SUCCESS,
+                                current_step="optional_index",
+                            )
+                            self._run_event_repo.append(
+                                run_id,
+                                "optional_index",
+                                "partial_success",
+                                {"error": str(e)},
+                            )
                 elif next_step == "complete_run":
                     self._step_complete_run(run_id)
+                    run_final = self._run_repo.get(run_id)
+                    if self._metrics is not None:
+                        if run_final and run_final.status == RunStatus.PARTIAL_SUCCESS:
+                            self._metrics.record_run_partial()
+                        else:
+                            self._metrics.record_run_succeeded()
+                    log_structured(
+                        _LOG,
+                        logging.INFO,
+                        "run completed",
+                        event="run_completed",
+                        module="run_orchestration",
+                        run_id=run_id,
+                        document_id=run_final.document_id if run_final else None,
+                        step="complete_run",
+                        correlation_id=correlation_id,
+                    )
                     self._run_event_repo.append(run_id, "complete_run", "completed", {})
                     break
             except Exception as e:
+                if self._metrics is not None:
+                    self._metrics.record_run_failed()
+                    if isinstance(e, ParsingError):
+                        self._metrics.record_parse_failure()
+                    elif isinstance(e, ValidationError):
+                        self._metrics.record_extraction_validation_failure()
+                err_code = error_code_for_run(e)
+                log_structured(
+                    _LOG,
+                    logging.INFO,
+                    "run failed",
+                    event="run_failed",
+                    module="run_orchestration",
+                    run_id=run_id,
+                    document_id=run.document_id if run else None,
+                    step=next_step,
+                    correlation_id=correlation_id,
+                )
                 self._run_repo.update_status(
                     run_id,
                     RunStatus.FAILED,
                     current_step=next_step,
-                    error_code=error_code_for_run(e),
+                    error_code=err_code,
                     error_message=str(e)[:4096],
                     finished_at=self._clock.now(),
                 )
@@ -159,6 +238,14 @@ class RunOrchestrator:
                 # Re-raise non-retryable so caller can assert (do not mask)
                 raise
 
+            # When optional_index failed we already set PARTIAL_SUCCESS and emitted partial_success event
+            if next_step == "optional_index":
+                run_after = self._run_repo.get(run_id)
+                if run_after and run_after.status == RunStatus.PARTIAL_SUCCESS:
+                    continue
+            if self._metrics is not None:
+                elapsed_ms = int((self._clock.now() - step_start).total_seconds() * 1000)
+                self._metrics.record_step_latency(next_step, elapsed_ms)
             self._run_repo.update_status(run_id, RunStatus.RUNNING, current_step=next_step)
             self._run_event_repo.append(run_id, next_step, "completed", {})
 
@@ -244,6 +331,11 @@ class RunOrchestrator:
             return
         extraction_chunks = [_chunk_to_extraction_chunk(c) for c in chunks]
         results: list[PrefilterResult] = self._prefilter_service.score_chunks(extraction_chunks)
+        accept = sum(1 for r in results if str(r.decision) == "keep")
+        gray = sum(1 for r in results if str(r.decision) == "gray")
+        reject = sum(1 for r in results if str(r.decision) == "reject")
+        if self._metrics is not None:
+            self._metrics.record_prefilter_decisions(accept=accept, gray=gray, reject=reject)
         for c, res in zip(chunks, results):
             self._chunk_repo.upsert_chunk(
                 run_id,
@@ -268,6 +360,13 @@ class RunOrchestrator:
                 self._prompt_cfg,
                 self._max_extract_retries,
             )
+            if self._metrics is not None:
+                self._metrics.record_llm_call(
+                    cache_hit=result.cache_hit,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    estimated_cost=result.estimated_cost_usd,
+                )
             for d in result.drafts:
                 out.append((d, c.id, ext_chunk.chunk_text, ext_chunk.section_path, ext_chunk.page_refs, result))
         return out
@@ -302,9 +401,11 @@ class RunOrchestrator:
             self._action_repo.save(action, evidence=evidence_list)
 
     def _step_complete_run(self, run_id: str) -> None:
+        run = self._run_repo.get(run_id)
+        status = RunStatus.PARTIAL_SUCCESS if (run and run.status == RunStatus.PARTIAL_SUCCESS) else RunStatus.SUCCEEDED
         self._run_repo.update_status(
             run_id,
-            RunStatus.SUCCEEDED,
+            status,
             current_step="complete_run",
             finished_at=self._clock.now(),
         )

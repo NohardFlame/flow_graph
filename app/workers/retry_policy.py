@@ -3,6 +3,7 @@
 from app.core.errors import (
     ConfigError,
     ExtractionError,
+    InternalError,
     NormalizationError,
     NotFoundError,
     ParsingError,
@@ -19,11 +20,12 @@ def is_run_step_retryable(exc: BaseException) -> bool:
 
     Retry: RetryableExternalError, transient storage/network.
     Do not retry: PermanentExternalError, ValidationError, ConfigError,
-    ParsingError (e.g. unsupported format), NormalizationError, NotFoundError.
+    ParsingError (e.g. unsupported format), NormalizationError, NotFoundError,
+    InternalError.
     """
     if isinstance(exc, RetryableExternalError):
         return True
-    if isinstance(exc, (ValidationError, ConfigError, PermanentExternalError)):
+    if isinstance(exc, (ValidationError, ConfigError, PermanentExternalError, InternalError)):
         return False
     if isinstance(exc, (ParsingError, NormalizationError, ExtractionError, NotFoundError)):
         return False
@@ -61,8 +63,10 @@ def error_code_for_run(exc: BaseException) -> str:
         return "storage_error"
     if isinstance(exc, NotFoundError):
         return "not_found"
+    if isinstance(exc, InternalError):
+        return "internal_error"
     if isinstance(exc, ConnectionError):
         return "connection_error"
     if type(exc).__name__ == "TimeoutError":
         return "timeout"
-    return "error"
+    return "internal_error"
