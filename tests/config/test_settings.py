@@ -36,10 +36,12 @@ class TestSettingsLoading:
 
     def test_respects_feature_flags(self, env_minimal_valid, monkeypatch):
         reset_settings_cache()
+        monkeypatch.setenv("USE_FAKE_ADAPTERS", "1")
         monkeypatch.setenv("ENABLE_QDRANT", "true")
         monkeypatch.setenv("ENABLE_LLM_CACHE", "1")
         monkeypatch.setenv("ENABLE_PREFILTER_DEBUG_FIELDS", "yes")
         settings = get_settings()
+        assert settings.use_fake_adapters is True
         assert settings.enable_qdrant is True
         assert settings.enable_llm_cache is True
         assert settings.enable_prefilter_debug_fields is True

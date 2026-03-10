@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any, Optional
 
 from app.adapters.llm.retry_repair import ExtractActionsProtocol, extract_with_retry
-from app.core.constants import RUN_PIPELINE_STEPS, RunStatus
+from app.core.constants import (
+    EXTRACTION_PROMPT_VERSION,
+    EXTRACTION_SCHEMA_VERSION,
+    RUN_PIPELINE_STEPS,
+    RunStatus,
+)
 from app.core.errors import NotFoundError, ParsingError, StorageNotFoundError, ValidationError
 from app.core.metrics import MetricsRecorder
 from app.core.normalization_config import NormalizationConfig
@@ -83,6 +89,7 @@ class RunOrchestrator:
         clock: ClockProtocol,
         max_extract_retries: int = 2,
         extraction_prompt_cfg: dict[str, Any] | None = None,
+        extraction_delay_seconds: float = 0.0,
         optional_indexer: Optional[Callable[[str], None]] = None,
         metrics: Optional[MetricsRecorder] = None,
     ) -> None:
@@ -100,7 +107,11 @@ class RunOrchestrator:
         self._id_generator = id_generator
         self._clock = clock
         self._max_extract_retries = max_extract_retries
-        self._prompt_cfg = extraction_prompt_cfg or {"prompt_version": "v1", "schema_version": "v1"}
+        self._prompt_cfg = extraction_prompt_cfg or {
+            "prompt_version": EXTRACTION_PROMPT_VERSION,
+            "schema_version": EXTRACTION_SCHEMA_VERSION,
+        }
+        self._extraction_delay_seconds = max(0.0, extraction_delay_seconds)
         self._optional_indexer = optional_indexer
         self._metrics = metrics
 
@@ -350,9 +361,22 @@ class RunOrchestrator:
             )
 
     def _step_extract_actions(self, run_id: str) -> list[Any]:
-        chunks = self._chunk_repo.list_by_run_and_decision(run_id, "keep")
+        chunks = self._chunk_repo.list_by_run_for_extraction(run_id)
         out: list[Any] = []
-        for c in chunks:
+        delay = self._extraction_delay_seconds
+        if chunks:
+            log_structured(
+                _LOG,
+                logging.INFO,
+                "Extracting actions: chunk count and delay between chunks",
+                run_id=run_id,
+                chunk_count=len(chunks),
+                extraction_delay_seconds=delay,
+                event="extract_actions_start",
+            )
+        for i, c in enumerate(chunks):
+            if i > 0 and delay > 0:
+                time.sleep(delay)
             ext_chunk = _chunk_to_extraction_chunk(c)
             result: ExtractionResult = extract_with_retry(
                 self._llm_adapter,

@@ -114,6 +114,10 @@ class ActionItem(BaseModel):
     action_label: str
     action_canonical: str
     confidence: float | None = None
+    primary_actor_key: str | None = None
+    primary_object_key: str | None = None
+    input_state_key: str | None = None
+    output_state_key: str | None = None
 
 
 class ActionListResponse(BaseModel):
@@ -121,6 +125,13 @@ class ActionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RunGraphResponse(BaseModel):
+    """All actions for a run (no pagination), for graph visualization."""
+
+    run_id: str
+    items: list[ActionItem]
 
 
 # --- Errors (machine-readable) ---

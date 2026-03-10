@@ -1,4 +1,4 @@
-"""Prompt builder: includes chunk metadata, schema version, evidence; deterministic."""
+"""Prompt builder: chunk metadata, schema version, action-centric semantics; deterministic."""
 
 from app.adapters.llm.prompt_builder import build_extraction_messages
 from app.domain.parse_models import ExtractionChunk
@@ -32,15 +32,17 @@ class TestPromptBuilderContent:
     def test_includes_schema_version(self):
         chunk = _make_chunk()
         messages = build_extraction_messages(chunk, "v1", "v2")
+        user_content = messages[1]["content"]
         system_content = messages[0]["content"]
-        assert "v2" in system_content or "schema" in system_content.lower()
+        assert "v2" in user_content or "v2" in system_content or "schema" in system_content.lower()
 
-    def test_includes_evidence_instructions(self):
+    def test_includes_action_centric_semantics(self):
+        """Prompt focuses on what counts as an extractable action (no evidence fields per contract)."""
         chunk = _make_chunk()
         messages = build_extraction_messages(chunk, "v1", "v1")
         system_content = messages[0]["content"]
-        assert "evidence" in system_content.lower() or "supported" in system_content.lower()
         assert "action" in system_content.lower()
+        assert "extract" in system_content.lower()
 
     def test_includes_chunk_text_in_user_message(self):
         chunk = _make_chunk(chunk_text="Submit the request to the server.")
@@ -48,11 +50,15 @@ class TestPromptBuilderContent:
         user_content = messages[1]["content"]
         assert "Submit the request to the server." in user_content
 
-    def test_includes_json_schema_guidance(self):
+    def test_includes_short_output_hint_not_prose_schema(self):
+        """Prompt has short output hint; long prose JSON schema is in adapter response_format, not prompt."""
         chunk = _make_chunk()
         messages = build_extraction_messages(chunk, "v1", "v1")
         system_content = messages[0]["content"]
-        assert "JSON" in system_content
+        assert "JSON" in system_content and "array" in system_content.lower()
+        # No long "Allowed keys only:" list in system message (schema enforced at request level)
+        assert "Allowed keys only" not in system_content
+        # Examples still reference allowed keys
         assert "verb" in system_content or "primary_object" in system_content
 
     def test_normalization_hint_included_when_provided(self):
@@ -81,8 +87,13 @@ class TestPromptBuilderDeterminism:
         assert a != b
         assert a[1]["content"] != b[1]["content"]
 
-    def test_different_versions_different_system_message(self):
+    def test_different_versions_different_messages(self):
+        """Prompt version and schema version are in chunk_meta (user message); messages differ when versions differ."""
         chunk = _make_chunk()
         a = build_extraction_messages(chunk, "v1", "v1")
         b = build_extraction_messages(chunk, "v2", "v1")
-        assert a[0]["content"] != b[0]["content"]
+        c = build_extraction_messages(chunk, "v1", "1.1")
+        assert a != b
+        assert a != c
+        assert "v1" in a[1]["content"] and "v2" in b[1]["content"]
+        assert "1.1" in c[1]["content"]

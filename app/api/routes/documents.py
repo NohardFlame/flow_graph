@@ -26,6 +26,25 @@ def _allowed_content_types_set() -> set[str]:
     return {x.strip().lower() for x in get_settings().api.allowed_content_types.split(",") if x.strip()}
 
 
+# When browser sends application/octet-stream, infer type from allowed extension
+_EXTENSION_TO_CONTENT_TYPE: dict[str, str] = {
+    "md": "text/markdown",
+    "txt": "text/plain",
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def _normalize_content_type(filename: str, content_type: str) -> str:
+    """If client sent generic application/octet-stream, infer from extension when allowed."""
+    ct = (content_type or "").strip().split(";")[0].strip().lower()
+    if ct != "application/octet-stream":
+        return content_type or "application/octet-stream"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return _EXTENSION_TO_CONTENT_TYPE.get(ext, content_type)
+
+
 def _validate_upload(filename: str, content_type: str, size: int) -> None:
     """Raise ValidationError if filename, size, or content type is invalid."""
     if not filename or not filename.strip():
@@ -49,7 +68,7 @@ async def upload_document(
 ):
     """Upload a document. Creates document and first version; does not create a run."""
     filename = file.filename or "unnamed"
-    content_type = file.content_type or "application/octet-stream"
+    content_type = _normalize_content_type(filename, file.content_type or "application/octet-stream")
     # Read with limit to avoid loading unbounded data
     max_bytes = get_settings().api.max_upload_bytes
     body = await file.read(max_bytes + 1)

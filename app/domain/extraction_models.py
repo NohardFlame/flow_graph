@@ -26,6 +26,8 @@ class ExtractionResult:
     estimated_cost_usd: float | None
     warnings: tuple[str, ...]
     fallback_used: bool = False
+    structured_output_used: bool = False
+    schema_fallback_used: bool = False
     # Optional: for audit when repair was used (Phase 8 can persist)
     raw_response: str | None = None
     repaired_response: str | None = None

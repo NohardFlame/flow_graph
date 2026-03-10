@@ -1,10 +1,12 @@
 """FastAPI app factory: routes, exception handlers, correlation ID middleware."""
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import documents, health, runs
@@ -116,6 +118,10 @@ def create_app(
     app.include_router(documents.router)
     app.include_router(runs.router)
     app.include_router(health.router)
+
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    if static_dir.is_dir():
+        app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="ui")
 
     app.add_exception_handler(NotFoundError, not_found_handler)
     app.add_exception_handler(ValidationError, validation_error_handler)

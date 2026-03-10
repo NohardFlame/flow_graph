@@ -9,6 +9,7 @@ from app.api.schemas import (
     ChunkListResponse,
     RunEventItem,
     RunEventsResponse,
+    RunGraphResponse,
     RunResponse,
     internal_status_to_public,
 )
@@ -119,10 +120,43 @@ def get_run_actions(
                 action_label=a.action_label,
                 action_canonical=a.action_canonical,
                 confidence=a.confidence,
+                primary_actor_key=a.primary_actor_key,
+                primary_object_key=a.primary_object_key,
+                input_state_key=a.input_state_key,
+                output_state_key=a.output_state_key,
             )
             for a in actions
         ],
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/{run_id}/graph", response_model=RunGraphResponse)
+def get_run_graph(
+    run_id: str,
+    run_repo: RunRepository = Depends(get_run_repo),
+    action_repo: ActionRepository = Depends(get_action_repo),
+):
+    """Return all actions for the run (no pagination) for graph visualization. 404 if run not found."""
+    run = run_repo.get(run_id)
+    if run is None:
+        raise NotFoundError(f"Run not found: {run_id}")
+    actions = action_repo.list_by_run(run_id, limit=None)
+    return RunGraphResponse(
+        run_id=run_id,
+        items=[
+            ActionItem(
+                id=a.id,
+                action_label=a.action_label,
+                action_canonical=a.action_canonical,
+                confidence=a.confidence,
+                primary_actor_key=a.primary_actor_key,
+                primary_object_key=a.primary_object_key,
+                input_state_key=a.input_state_key,
+                output_state_key=a.output_state_key,
+            )
+            for a in actions
+        ],
     )

@@ -73,6 +73,8 @@ class FakeLLMAdapter:
             estimated_cost_usd=meta["estimated_cost_usd"],
             warnings=tuple(meta["warnings"]) if isinstance(meta["warnings"], (list, tuple)) else meta["warnings"],
             fallback_used=meta["fallback_used"],
+            structured_output_used=meta.get("structured_output_used", False),
+            schema_fallback_used=meta.get("schema_fallback_used", False),
         )
 
     def repair_json(self, raw_output: str, schema_cfg: Any) -> RepairResult:

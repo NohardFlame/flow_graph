@@ -52,4 +52,4 @@ class PrefilterDecision(StrEnum):
 
 # Extraction prompt and schema versions (used in cache key and persisted with every result)
 EXTRACTION_PROMPT_VERSION = "v1"
-EXTRACTION_SCHEMA_VERSION = "v1"
+EXTRACTION_SCHEMA_VERSION = "1.1"  # action_draft_v1_1

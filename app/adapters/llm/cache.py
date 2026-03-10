@@ -62,6 +62,8 @@ def with_cache_hit(result: ExtractionResult) -> ExtractionResult:
         estimated_cost_usd=result.estimated_cost_usd,
         warnings=result.warnings,
         fallback_used=result.fallback_used,
+        structured_output_used=result.structured_output_used,
+        schema_fallback_used=result.schema_fallback_used,
         raw_response=result.raw_response,
         repaired_response=result.repaired_response,
     )

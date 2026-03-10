@@ -53,6 +53,32 @@ class TestLiteLLMAdapterExtractActions:
         assert result.cache_hit is False
         assert result.input_tokens == 5
         assert result.output_tokens == 10
+        assert result.schema_version == "v1"
+        assert result.structured_output_used is True
+        assert result.schema_fallback_used is False
+        # Adapter passes response_format for structured output
+        call_kwargs = mock_completion.call_args[1]
+        assert "response_format" in call_kwargs
+        assert call_kwargs["response_format"].get("type") == "json_schema"
+
+    def test_schema_fallback_when_provider_rejects_structured_output(self, mock_completion):
+        from litellm.exceptions import BadRequestError
+
+        mock_completion.side_effect = [
+            BadRequestError("Structured output not supported", "openai/gpt-4o-mini", "response_format"),
+            _mock_response('[{"verb": "submit", "primary_object": "form"}]'),
+        ]
+        settings = LiteLLMSettings(model="gpt-4o-mini", max_retries=0)
+        adapter = LiteLLMAdapter(settings)
+        result = adapter.extract_actions(_chunk(), _prompt_cfg())
+        assert len(result.drafts) == 1
+        assert result.structured_output_used is False
+        assert result.schema_fallback_used is True
+        assert mock_completion.call_count == 2
+        first_kwargs = mock_completion.call_args_list[0][1]
+        second_kwargs = mock_completion.call_args_list[1][1]
+        assert "response_format" in first_kwargs
+        assert "response_format" not in second_kwargs
 
     def test_invalid_json_raises_extraction_error(self, mock_completion):
         mock_completion.return_value = _mock_response("not json")

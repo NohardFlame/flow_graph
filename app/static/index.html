@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flow Graph – Pipeline UI</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 1rem; }
+    h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+    section { margin-bottom: 1.5rem; }
+    .upload-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    input[type="file"] { flex: 1; min-width: 160px; }
+    button { padding: 0.4rem 0.8rem; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .doc-list { list-style: none; padding: 0; margin: 0; }
+    .doc-item { border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; }
+    .doc-item .meta { font-size: 0.9rem; color: #555; margin-bottom: 0.5rem; }
+    .doc-item button.run-btn { margin-right: 0.5rem; }
+    .run-section { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-top: 0.5rem; }
+    .run-section h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+    .status { font-weight: 500; }
+    .status.running { color: #0066cc; }
+    .status.succeeded { color: #0a0; }
+    .status.failed { color: #c00; }
+    .status.queued { color: #666; }
+    .error-msg { color: #c00; font-size: 0.9rem; margin-top: 0.25rem; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: #0066cc; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.35rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .events-toggle { font-size: 0.9rem; margin: 0.5rem 0; cursor: pointer; }
+    .events-list { font-size: 0.85rem; max-height: 200px; overflow-y: auto; margin-top: 0.25rem; }
+    .events-list table { width: 100%; border-collapse: collapse; }
+    .events-list th, .events-list td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid #eee; }
+    .actions-list { margin-top: 0.5rem; }
+    .actions-list table { width: 100%; border-collapse: collapse; }
+    .actions-list th, .actions-list td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee; }
+    .message { padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; }
+    .message.error { background: #fee; color: #c00; }
+    .message.success { background: #efe; color: #0a0; }
+  </style>
+</head>
+<body>
+  <h1>Flow Graph – Pipeline UI</h1>
+  <p style="font-size: 0.9rem; margin-bottom: 1rem;"><a href="/ui/run-graph.html">Analyze run (graph)</a></p>
+
+  <section>
+    <h2>Upload</h2>
+    <div class="upload-row">
+      <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt,.md" />
+      <button type="button" id="uploadBtn">Upload</button>
+    </div>
+    <div id="uploadMessage"></div>
+    <ul class="doc-list" id="docList"></ul>
+  </section>
+
+  <section id="runSection" style="display: none;">
+    <h2>Run</h2>
+    <div class="run-section">
+      <h3>Run: <span id="runId"></span> <a id="runGraphLink" href="#" style="font-size: 0.85rem; font-weight: normal;">View run graph</a></h3>
+      <p class="status" id="runStatus"></p>
+      <p class="error-msg" id="runError"></p>
+      <p id="currentStep"></p>
+      <details class="events-toggle">
+        <summary>Events</summary>
+        <div class="events-list" id="eventsList"></div>
+      </details>
+      <div class="actions-list">
+        <strong>Actions</strong>
+        <div id="actionsList"></div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadMessage = document.getElementById('uploadMessage');
+    const docList = document.getElementById('docList');
+    const runSection = document.getElementById('runSection');
+    const runIdEl = document.getElementById('runId');
+    const runGraphLink = document.getElementById('runGraphLink');
+    const runStatusEl = document.getElementById('runStatus');
+    const runErrorEl = document.getElementById('runError');
+    const currentStepEl = document.getElementById('currentStep');
+    const eventsListEl = document.getElementById('eventsList');
+    const actionsListEl = document.getElementById('actionsList');
+
+    const TERMINAL_STATUSES = ['succeeded', 'failed', 'partial_success', 'cancelled', 'unknown'];
+    const POLL_INTERVAL_MS = 1500;
+
+    function showMessage(el, text, type) {
+      el.textContent = text;
+      el.className = 'message ' + (type || '');
+      el.style.display = text ? 'block' : 'none';
+    }
+
+    function addDocument(id, filename, sizeBytes) {
+      const li = document.createElement('li');
+      li.className = 'doc-item';
+      li.dataset.documentId = id;
+      li.innerHTML = '<div class="meta">' + escapeHtml(filename) + ' &middot; ' + id + ' &middot; ' + sizeBytes + ' bytes</div>' +
+        '<button type="button" class="run-btn">Run</button>';
+      li.querySelector('.run-btn').addEventListener('click', () => startRun(id, li));
+      docList.appendChild(li);
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    async function upload() {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        showMessage(uploadMessage, 'Choose a file first.', 'error');
+        return;
+      }
+      uploadBtn.disabled = true;
+      showMessage(uploadMessage, '');
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const r = await fetch('/documents', { method: 'POST', body: form });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showMessage(uploadMessage, data.detail || 'Upload failed.', 'error');
+          return;
+        }
+        showMessage(uploadMessage, 'Uploaded: ' + data.original_filename, 'success');
+        addDocument(data.id, data.original_filename, data.size_bytes);
+        fileInput.value = '';
+      } catch (e) {
+        showMessage(uploadMessage, 'Network error: ' + e.message, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    }
+
+    async function startRun(documentId, docItem) {
+      const runBtn = docItem.querySelector('.run-btn');
+      runBtn.disabled = true;
+      runSection.style.display = 'block';
+      runIdEl.textContent = '…';
+      runStatusEl.textContent = '';
+      runStatusEl.className = 'status';
+      runErrorEl.textContent = '';
+      currentStepEl.textContent = '';
+      eventsListEl.innerHTML = '';
+      actionsListEl.innerHTML = '';
+
+      try {
+        const r = await fetch('/documents/' + encodeURIComponent(documentId) + '/runs', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          runStatusEl.textContent = 'Failed to create run';
+          runStatusEl.className = 'status failed';
+          runErrorEl.textContent = data.detail || r.statusText;
+          runBtn.disabled = false;
+          return;
+        }
+        const runId = data.id;
+        runIdEl.textContent = runId;
+        runGraphLink.href = '/ui/run-graph.html?run_id=' + encodeURIComponent(runId);
+        runStatusEl.innerHTML = '<span class="spinner"></span> Running…';
+        runStatusEl.className = 'status running';
+        await pollRun(runId);
+      } catch (e) {
+        runStatusEl.textContent = 'Error';
+        runStatusEl.className = 'status failed';
+        runErrorEl.textContent = e.message;
+        runBtn.disabled = false;
+      }
+    }
+
+    async function pollRun(runId) {
+      const runBtn = document.querySelector('.doc-item[data-document-id] .run-btn');
+      let status = '';
+      for (;;) {
+        const r = await fetch('/runs/' + encodeURIComponent(runId));
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          runStatusEl.textContent = 'Failed to fetch status';
+          runStatusEl.className = 'status failed';
+          runErrorEl.textContent = data.detail || r.statusText;
+          if (runBtn) runBtn.disabled = false;
+          return;
+        }
+        status = (data.status || '').toLowerCase();
+        runStatusEl.textContent = status;
+        runStatusEl.className = 'status ' + status;
+        runStatusEl.innerHTML = status === 'running' || status === 'queued' ? '<span class="spinner"></span> ' + status : status;
+        if (data.error_message) runErrorEl.textContent = data.error_message;
+        if (data.current_step) currentStepEl.textContent = 'Step: ' + data.current_step;
+
+        if (TERMINAL_STATUSES.includes(status)) {
+          const [eventsRes, actionsRes] = await Promise.all([
+            fetch('/runs/' + encodeURIComponent(runId) + '/events'),
+            fetch('/runs/' + encodeURIComponent(runId) + '/actions')
+          ]);
+          const eventsData = await eventsRes.json().catch(() => ({ items: [] }));
+          const actionsData = await actionsRes.json().catch(() => ({ items: [] }));
+          renderEvents(eventsData.items || []);
+          renderActions(actionsData.items || []);
+          if (runBtn) runBtn.disabled = false;
+          return;
+        }
+        await new Promise(ok => setTimeout(ok, POLL_INTERVAL_MS));
+      }
+    }
+
+    function renderEvents(items) {
+      if (items.length === 0) {
+        eventsListEl.innerHTML = '<p>No events.</p>';
+        return;
+      }
+      let table = '<table><thead><tr><th>Step</th><th>Type</th><th>Time</th></tr></thead><tbody>';
+      items.forEach(ev => {
+        const time = ev.created_at ? new Date(ev.created_at).toLocaleString() : '—';
+        table += '<tr><td>' + escapeHtml(ev.step || '') + '</td><td>' + escapeHtml(ev.event_type || '') + '</td><td>' + escapeHtml(time) + '</td></tr>';
+      });
+      table += '</tbody></table>';
+      eventsListEl.innerHTML = table;
+    }
+
+    function renderActions(items) {
+      if (items.length === 0) {
+        actionsListEl.innerHTML = '<p>No actions.</p>';
+        return;
+      }
+      let table = '<table><thead><tr><th>Label</th><th>Canonical</th><th>Confidence</th></tr></thead><tbody>';
+      items.forEach(a => {
+        const conf = a.confidence != null ? String(a.confidence) : '—';
+        table += '<tr><td>' + escapeHtml(a.action_label || '') + '</td><td>' + escapeHtml(a.action_canonical || '') + '</td><td>' + escapeHtml(conf) + '</td></tr>';
+      });
+      table += '</tbody></table>';
+      actionsListEl.innerHTML = table;
+    }
+
+    uploadBtn.addEventListener('click', upload);
+  </script>
+</body>
+</html>

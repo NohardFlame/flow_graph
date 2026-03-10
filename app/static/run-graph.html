@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flow Graph – Run actions graph</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
+    h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+    .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .toolbar input { width: 280px; padding: 0.4rem 0.5rem; }
+    .toolbar button { padding: 0.4rem 0.8rem; cursor: pointer; }
+    .toolbar button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .message { padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; }
+    .message.error { background: #fee; color: #c00; }
+    .message.hidden { display: none; }
+    .graph-wrap { overflow: auto; border: 1px solid #ccc; border-radius: 6px; background: #fafafa; margin-bottom: 1rem; }
+    .graph-wrap svg { display: block; }
+    .graph-wrap .node-actor { fill: #e3f2fd; stroke: #1976d2; }
+    .graph-wrap .node-object { fill: #f3e5f5; stroke: #7b1fa2; }
+    .graph-wrap .edge-line { stroke: #555; stroke-width: 1.5; fill: none; }
+    .graph-wrap .edge-line:hover { stroke: #0066cc; }
+    .graph-wrap .edge-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; }
+    .graph-wrap .edge-label { font-size: 11px; fill: #333; pointer-events: none; }
+    .meta-panel { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; background: #fff; font-size: 0.9rem; max-width: 480px; }
+    .meta-panel h3 { margin: 0 0 0.5rem 0; font-size: 0.95rem; }
+    .meta-panel dl { margin: 0; }
+    .meta-panel dt { font-weight: 600; color: #555; margin-top: 0.35rem; }
+    .meta-panel dd { margin: 0.1rem 0 0 0; }
+    .meta-panel.empty { color: #888; }
+    .back-link { font-size: 0.9rem; margin-bottom: 1rem; }
+    .back-link a { color: #0066cc; }
+  </style>
+</head>
+<body>
+  <p class="back-link"><a href="/ui/">← Pipeline UI</a></p>
+  <h1>Run actions graph</h1>
+
+  <div class="toolbar">
+    <input type="text" id="runIdInput" placeholder="Run ID" />
+    <button type="button" id="showBtn">Show graph</button>
+  </div>
+  <div id="message" class="message hidden"></div>
+  <div id="graphWrap" class="graph-wrap" style="display: none;"></div>
+  <div id="metaPanel" class="meta-panel empty">
+    <h3>Action metadata</h3>
+    <p>Click an arrow to see action details.</p>
+  </div>
+
+  <script>
+    (function () {
+      const RUN_ID_KEY = 'flow_graph_run_id';
+      const EMPTY_LABEL = '\u2014';
+
+      const runIdInput = document.getElementById('runIdInput');
+      const showBtn = document.getElementById('showBtn');
+      const messageEl = document.getElementById('message');
+      const graphWrap = document.getElementById('graphWrap');
+      const metaPanel = document.getElementById('metaPanel');
+
+      function showMessage(text, type) {
+        messageEl.textContent = text;
+        messageEl.className = 'message ' + (type || '');
+        messageEl.classList.remove('hidden');
+      }
+      function hideMessage() {
+        messageEl.classList.add('hidden');
+      }
+
+      function normKey(v) {
+        if (v == null || String(v).trim() === '') return EMPTY_LABEL;
+        return String(v).trim();
+      }
+
+      function applyRunIdFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const runId = params.get('run_id');
+        if (runId) {
+          runIdInput.value = runId;
+          try { localStorage.setItem(RUN_ID_KEY, runId); } catch (_) {}
+        } else {
+          try {
+            const saved = localStorage.getItem(RUN_ID_KEY);
+            if (saved) runIdInput.value = saved;
+          } catch (_) {}
+        }
+      }
+      applyRunIdFromQuery();
+
+      function renderMetadata(action) {
+        if (!action) {
+          metaPanel.innerHTML = '<h3>Action metadata</h3><p>Click an arrow to see action details.</p>';
+          metaPanel.classList.add('empty');
+          return;
+        }
+        metaPanel.classList.remove('empty');
+        const conf = action.confidence != null ? String(action.confidence) : '—';
+        const actor = action.primary_actor_key != null && action.primary_actor_key !== '' ? escapeHtml(action.primary_actor_key) : '—';
+        const obj = action.primary_object_key != null && action.primary_object_key !== '' ? escapeHtml(action.primary_object_key) : '—';
+        const inState = action.input_state_key != null && action.input_state_key !== '' ? escapeHtml(action.input_state_key) : '—';
+        const outState = action.output_state_key != null && action.output_state_key !== '' ? escapeHtml(action.output_state_key) : '—';
+        metaPanel.innerHTML =
+          '<h3>Action metadata</h3>' +
+          '<dl>' +
+          '<dt>Label</dt><dd>' + escapeHtml(action.action_label) + '</dd>' +
+          '<dt>Canonical</dt><dd>' + escapeHtml(action.action_canonical) + '</dd>' +
+          '<dt>Actor</dt><dd>' + actor + '</dd>' +
+          '<dt>Object</dt><dd>' + obj + '</dd>' +
+          '<dt>Confidence</dt><dd>' + escapeHtml(conf) + '</dd>' +
+          '<dt>Input state</dt><dd>' + inState + '</dd>' +
+          '<dt>Output state</dt><dd>' + outState + '</dd>' +
+          '<dt>ID</dt><dd>' + escapeHtml(action.id) + '</dd>' +
+          '</dl>';
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      const ROW_HEIGHT = 28;
+      const NODE_WIDTH = 120;
+      const NODE_HEIGHT = 22;
+      const LEFT_X = 24;
+      const RIGHT_X = 240;
+      const SVG_PAD = 40;
+      const LABEL_OFFSET = -4;
+
+      function renderGraph(items) {
+        const actors = [];
+        const objects = [];
+        const actorSet = new Set();
+        const objectSet = new Set();
+        items.forEach(function (a) {
+          const ak = normKey(a.primary_actor_key);
+          const ok = normKey(a.primary_object_key);
+          if (!actorSet.has(ak)) { actorSet.add(ak); actors.push(ak); }
+          if (!objectSet.has(ok)) { objectSet.add(ok); objects.push(ok); }
+        });
+        actors.sort();
+        objects.sort();
+
+        const actorIdx = {};
+        const objectIdx = {};
+        actors.forEach(function (k, i) { actorIdx[k] = i; });
+        objects.forEach(function (k, i) { objectIdx[k] = i; });
+
+        const nRows = Math.max(actors.length, objects.length, 1);
+        const svgWidth = RIGHT_X + NODE_WIDTH + SVG_PAD * 2;
+        const svgHeight = nRows * ROW_HEIGHT + SVG_PAD * 2;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', String(svgWidth));
+        svg.setAttribute('height', String(svgHeight));
+        svg.setAttribute('viewBox', '0 0 ' + svgWidth + ' ' + svgHeight);
+
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        marker.setAttribute('id', 'arrow');
+        marker.setAttribute('markerWidth', '8');
+        marker.setAttribute('markerHeight', '8');
+        marker.setAttribute('refX', '7');
+        marker.setAttribute('refY', '4');
+        marker.setAttribute('orient', 'auto');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', '0 0, 8 4, 0 8');
+        poly.setAttribute('fill', '#555');
+        marker.appendChild(poly);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+
+        actors.forEach(function (label, i) {
+          const y = SVG_PAD + i * ROW_HEIGHT + ROW_HEIGHT / 2;
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('x', String(LEFT_X));
+          rect.setAttribute('y', String(y - NODE_HEIGHT / 2));
+          rect.setAttribute('width', String(NODE_WIDTH));
+          rect.setAttribute('height', String(NODE_HEIGHT));
+          rect.setAttribute('rx', '4');
+          rect.setAttribute('class', 'node-actor');
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', String(LEFT_X + NODE_WIDTH / 2));
+          text.setAttribute('y', String(y + 4));
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('font-size', '12');
+          text.textContent = label.length > 14 ? label.slice(0, 12) + '…' : label;
+          g.appendChild(rect);
+          g.appendChild(text);
+          svg.appendChild(g);
+        });
+
+        objects.forEach(function (label, i) {
+          const y = SVG_PAD + i * ROW_HEIGHT + ROW_HEIGHT / 2;
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('x', String(RIGHT_X));
+          rect.setAttribute('y', String(y - NODE_HEIGHT / 2));
+          rect.setAttribute('width', String(NODE_WIDTH));
+          rect.setAttribute('height', String(NODE_HEIGHT));
+          rect.setAttribute('rx', '4');
+          rect.setAttribute('class', 'node-object');
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', String(RIGHT_X + NODE_WIDTH / 2));
+          text.setAttribute('y', String(y + 4));
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('font-size', '12');
+          text.textContent = label.length > 14 ? label.slice(0, 12) + '…' : label;
+          g.appendChild(rect);
+          g.appendChild(text);
+          svg.appendChild(g);
+        });
+
+        const edgeGroups = {};
+        function edgeKey(ai, oi) {
+          return ai + ',' + oi;
+        }
+        items.forEach(function (action) {
+          const ak = normKey(action.primary_actor_key);
+          const ok = normKey(action.primary_object_key);
+          const ai = actorIdx[ak];
+          const oi = objectIdx[ok];
+          const key = edgeKey(ai, oi);
+          if (!edgeGroups[key]) edgeGroups[key] = [];
+          edgeGroups[key].push(action);
+        });
+        Object.keys(edgeGroups).forEach(function (key) {
+          const group = edgeGroups[key];
+          const count = group.length;
+          group.forEach(function (action, idx) {
+          const parts = key.split(',');
+          const ai = parseInt(parts[0], 10);
+          const oi = parseInt(parts[1], 10);
+          const dy = (count === 1 ? 0 : (idx - (count - 1) / 2) * 4);
+          const x1 = LEFT_X + NODE_WIDTH;
+          const x2 = RIGHT_X;
+          const y1 = SVG_PAD + ai * ROW_HEIGHT + ROW_HEIGHT / 2 + dy;
+          const y2 = SVG_PAD + oi * ROW_HEIGHT + ROW_HEIGHT / 2 + dy;
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
+
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          g.setAttribute('data-action-id', action.id);
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const d = 'M' + x1 + ',' + y1 + ' L' + x2 + ',' + y2;
+          path.setAttribute('d', d);
+          path.setAttribute('class', 'edge-line');
+          path.setAttribute('marker-end', 'url(#arrow)');
+          g.appendChild(path);
+
+          const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          hit.setAttribute('d', d);
+          hit.setAttribute('class', 'edge-hit');
+          hit.addEventListener('click', function () { renderMetadata(action); });
+          g.appendChild(hit);
+
+          const labelText = action.action_label.length > 20 ? action.action_label.slice(0, 18) + '…' : action.action_label;
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', String(mx));
+          text.setAttribute('y', String(my + LABEL_OFFSET));
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('class', 'edge-label');
+          text.textContent = labelText;
+          g.appendChild(text);
+
+          svg.appendChild(g);
+          });
+        });
+
+        graphWrap.innerHTML = '';
+        graphWrap.appendChild(svg);
+        graphWrap.style.display = 'block';
+        renderMetadata(null);
+      }
+
+      showBtn.addEventListener('click', async function () {
+        const runId = (runIdInput.value || '').trim();
+        if (!runId) {
+          showMessage('Enter a run ID.', 'error');
+          return;
+        }
+        try { localStorage.setItem(RUN_ID_KEY, runId); } catch (_) {}
+        showBtn.disabled = true;
+        hideMessage();
+        graphWrap.style.display = 'none';
+
+        try {
+          const runRes = await fetch('/runs/' + encodeURIComponent(runId));
+          if (!runRes.ok) {
+            const data = await runRes.json().catch(function () { return {}; });
+            showMessage(data.detail || 'Run not found.', 'error');
+            showBtn.disabled = false;
+            return;
+          }
+          const graphRes = await fetch('/runs/' + encodeURIComponent(runId) + '/graph');
+          if (!graphRes.ok) {
+            const data = await graphRes.json().catch(function () { return {}; });
+            showMessage(data.detail || 'Failed to load graph.', 'error');
+            showBtn.disabled = false;
+            return;
+          }
+          const graph = await graphRes.json();
+          const items = graph.items || [];
+          if (items.length === 0) {
+            showMessage('No actions for this run.', 'error');
+            graphWrap.style.display = 'none';
+          } else {
+            renderGraph(items);
+          }
+        } catch (e) {
+          showMessage('Network error: ' + e.message, 'error');
+        }
+        showBtn.disabled = false;
+      });
+    })();
+  </script>
+</body>
+</html>

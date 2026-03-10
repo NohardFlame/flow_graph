@@ -1,10 +1,14 @@
 """Retry and repair policy for extraction: classify errors, cap retries and repair attempts."""
 
+import time
 from typing import Any, Protocol
 
 from app.core.errors import RetryableExternalError
 from app.domain.extraction_models import ExtractionResult
 from app.domain.parse_models import ExtractionChunk
+
+# Seconds to wait before retrying after a rate limit or other retryable error
+RETRY_BACKOFF_SECONDS = 15
 
 
 def is_retryable(err: BaseException) -> bool:
@@ -40,6 +44,8 @@ def extract_with_retry(
             last_err = e
             if not is_retryable(e):
                 raise
+            if attempt < max_retries:
+                time.sleep(RETRY_BACKOFF_SECONDS)
     if last_err is not None:
         raise last_err
     raise RuntimeError("extract_with_retry: unexpected")

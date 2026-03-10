@@ -39,11 +39,14 @@ class S3ObjectStorage:
 
     def __init__(self, settings: S3Settings) -> None:
         self._settings = settings
-        self._client = boto3.client(
-            "s3",
-            endpoint_url=settings.endpoint_url,
-            region_name="us-east-1",
-        )
+        kwargs = {
+            "endpoint_url": settings.endpoint_url,
+            "region_name": "us-east-1",
+        }
+        if (settings.access_key_id or "").strip():
+            kwargs["aws_access_key_id"] = settings.access_key_id.strip()
+            kwargs["aws_secret_access_key"] = (settings.secret_access_key or "").strip()
+        self._client = boto3.client("s3", **kwargs)
         self._bucket = settings.bucket
         self._key_prefix = settings.key_prefix or ""
 

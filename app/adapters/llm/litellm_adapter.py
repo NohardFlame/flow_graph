@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
+from app.adapters.llm.extraction_schema import (
+    EXTRACTION_JSON_SCHEMA,
+    EXTRACTION_SCHEMA_NAME,
+)
 from app.adapters.llm.prompt_builder import build_extraction_messages
 from app.adapters.llm.response_parser import parse_extraction_response
+from app.config.logging import get_logger, log_structured
 from app.config.settings import LiteLLMSettings
 from app.core.errors import (
     ExtractionError,
@@ -16,6 +22,18 @@ from app.core.errors import (
 )
 from app.domain.extraction_models import ExtractionResult, RepairResult
 from app.domain.parse_models import ExtractionChunk
+
+_LOG = get_logger(__name__)
+
+# response_format for LiteLLM structured output (JSON Schema)
+_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": EXTRACTION_SCHEMA_NAME,
+        "schema": EXTRACTION_JSON_SCHEMA,
+    },
+    "strict": True,
+}
 
 
 def _map_litellm_exception(e: BaseException) -> BaseException:
@@ -106,15 +124,41 @@ class LiteLLMAdapter:
         for attempt in range(max_retries + 1):
             try:
                 start = time.perf_counter()
-                response = completion(
-                    model=model,
-                    messages=messages,
-                    temperature=0.1,
-                    timeout=timeout,
-                    num_retries=0,
-                    api_key=self._settings.api_key or None,
-                    api_base=self._settings.base_url,
-                )
+                structured_output_used = False
+                schema_fallback_used = False
+                response = None
+                try:
+                    response = completion(
+                        model=model,
+                        messages=messages,
+                        temperature=0.1,
+                        timeout=timeout,
+                        num_retries=0,
+                        api_key=self._settings.api_key or None,
+                        api_base=self._settings.base_url,
+                        response_format=_RESPONSE_FORMAT,
+                    )
+                    structured_output_used = True
+                except BadRequestError:
+                    log_structured(
+                        _LOG,
+                        logging.INFO,
+                        "Structured output not supported by provider, falling back to JSON mode",
+                        provider="litellm",
+                        model=model,
+                        event="extraction_schema_fallback",
+                    )
+                    schema_fallback_used = True
+                    response = completion(
+                        model=model,
+                        messages=messages,
+                        temperature=0.1,
+                        timeout=timeout,
+                        num_retries=0,
+                        api_key=self._settings.api_key or None,
+                        api_base=self._settings.base_url,
+                    )
+
                 elapsed_ms = int((time.perf_counter() - start) * 1000)
                 content = _get_content(response)
                 in_t, out_t = _get_usage(response)
@@ -138,6 +182,8 @@ class LiteLLMAdapter:
                     estimated_cost_usd=None,
                     warnings=(),
                     fallback_used=fallback_used,
+                    structured_output_used=structured_output_used,
+                    schema_fallback_used=schema_fallback_used,
                     raw_response=content,
                     repaired_response=repaired_response,
                 )

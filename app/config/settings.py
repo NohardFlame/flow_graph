@@ -56,6 +56,8 @@ class S3Settings(BaseSettings):
     endpoint_url: str = "http://localhost:9000"
     bucket: str = "flow-graph"
     key_prefix: str = ""
+    access_key_id: str = ""
+    secret_access_key: str = ""
 
 
 class DoclingSettings(BaseSettings):
@@ -72,6 +74,8 @@ class LiteLLMSettings(BaseSettings):
     max_retries: int = 2
     request_timeout: int = 60
     repair_max_attempts: int = 1
+    # Delay in seconds between LLM calls when processing multiple chunks (avoids 429 on free tier)
+    extraction_delay_seconds: float = 10.0
 
 
 class PrefilterSettings(BaseSettings):
@@ -82,14 +86,14 @@ class PrefilterSettings(BaseSettings):
     weight_structural_heading: float = 0.15
     weight_structural_table_list: float = 0.1
     weight_structural_depth: float = 0.05
-    weight_structural_appendix_penalty: float = -0.2
+    weight_structural_appendix_penalty: float = -0.1
     weight_exact_match: float = 0.25
     weight_pattern: float = 0.2
     weight_context_boost: float = 0.15
     weight_lexical: float = 0.1
     # Thresholds: score >= accept -> keep; gray_threshold <= score < accept -> gray; < gray_threshold -> reject
-    accept_threshold: float = 0.5
-    gray_threshold: float = 0.3
+    accept_threshold: float = 0.4
+    gray_threshold: float = 0.2
     top_gray_budget_per_document: int = 10
     gray_adjacent_to_accepted: bool = True
     # Lexicon and resources
@@ -139,6 +143,9 @@ class Settings(BaseSettings):
     environment: str = Field(..., description="APP_ENVIRONMENT or ENVIRONMENT")
 
     # Feature flags (explicit booleans)
+    use_fake_adapters: bool = Field(
+        default=False, description="USE_FAKE_ADAPTERS: use in-memory storage/queue instead of S3/Redis"
+    )
     enable_qdrant: bool = Field(default=False, description="ENABLE_QDRANT")
     enable_llm_cache: bool = Field(default=False, description="ENABLE_LLM_CACHE")
     enable_prefilter_debug_fields: bool = Field(

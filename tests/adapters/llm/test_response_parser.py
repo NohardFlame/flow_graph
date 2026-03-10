@@ -74,6 +74,16 @@ class TestParseExtractionResponseValid:
         assert result[0].primary_object is None
         assert result[0].primary_actor is None
 
+    def test_schema_version_1_1_parses_identically(self):
+        """Structured output for action_draft_v1_1 parses same as v1 (parser contract unchanged)."""
+        raw = '[{"verb": "create", "primary_object": "request", "action_label": "create request"}]'
+        result_v1 = parse_extraction_response(raw, "v1")
+        result_11 = parse_extraction_response(raw, "1.1")
+        assert result_v1 == result_11
+        assert len(result_11) == 1
+        assert result_11[0].verb == "create"
+        assert result_11[0].primary_object == "request"
+
 
 class TestParseExtractionResponseInvalid:
     def test_empty_string_raises_validation_error(self):

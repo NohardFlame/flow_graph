@@ -5,16 +5,21 @@ from typing import Any
 
 from app.adapters.parser.docling_adapter import DoclingParserAdapter
 from app.adapters.storage.fake_storage import FakeObjectStorage
+from app.adapters.storage.s3_storage import S3ObjectStorage
 from app.config.settings import get_settings
+from app.core.constants import EXTRACTION_PROMPT_VERSION, EXTRACTION_SCHEMA_VERSION
 from app.core.normalization_config import load_normalization_config
 from app.services.chunk_assembler import ChunkAssembler
 from app.services.prefilter.service import PrefilterService
 from app.services.run_orchestration.service import RunOrchestrator
 
-# Lazy imports for optional/LLM deps. Default returns empty drafts so pipeline completes without real LLM.
+# Lazy imports for optional/LLM deps. Use real LLM when LITELLM_API_KEY is set; otherwise fake (empty drafts).
 def _default_llm_adapter() -> Any:
+    settings = get_settings()
+    if (settings.litellm.api_key or "").strip():
+        from app.adapters.llm.litellm_adapter import LiteLLMAdapter
+        return LiteLLMAdapter(settings.litellm)
     from app.adapters.llm.fake_llm_adapter import FakeLLMAdapter
-    # Return empty drafts so multiple chunks don't exhaust the queue
     return FakeLLMAdapter(extraction_responses=["[]"] * 1000)
 
 
@@ -46,8 +51,10 @@ def get_worker_deps() -> dict[str, Any]:
     if not prefilter_base.is_absolute():
         prefilter_base = Path.cwd() / prefilter_base
 
+    storage = FakeObjectStorage() if settings.use_fake_adapters else S3ObjectStorage(settings.s3)
+
     return {
-        "storage": FakeObjectStorage(),
+        "storage": storage,
         "parser_factory": lambda document_id, run_id: DoclingParserAdapter(document_id=document_id, run_id=run_id),
         "chunk_assembler": ChunkAssembler(),
         "prefilter_service": PrefilterService(lexicon_dir=str(prefilter_base)),
@@ -56,7 +63,11 @@ def get_worker_deps() -> dict[str, Any]:
         "id_generator": _default_id_generator(),
         "clock": _default_clock(),
         "max_extract_retries": settings.litellm.max_retries,
-        "extraction_prompt_cfg": {"prompt_version": "v1", "schema_version": "v1"},
+        "extraction_delay_seconds": settings.litellm.extraction_delay_seconds,
+        "extraction_prompt_cfg": {
+            "prompt_version": EXTRACTION_PROMPT_VERSION,
+            "schema_version": EXTRACTION_SCHEMA_VERSION,
+        },
     }
 
 
@@ -85,5 +96,6 @@ def build_orchestrator(session: Any) -> RunOrchestrator:
         id_generator=deps["id_generator"],
         clock=deps["clock"],
         max_extract_retries=deps["max_extract_retries"],
+        extraction_delay_seconds=deps["extraction_delay_seconds"],
         extraction_prompt_cfg=deps["extraction_prompt_cfg"],
     )

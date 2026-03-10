@@ -8,7 +8,7 @@ are idempotent.
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -84,5 +84,16 @@ class ChunkRepository:
     def list_by_run_and_decision(self, run_id: str, decision: str) -> list[Chunk]:
         result = self._session.execute(
             select(Chunk).where(Chunk.run_id == run_id, Chunk.prefilter_decision == decision).order_by(Chunk.id)
+        )
+        return list(result.scalars().all())
+
+    def list_by_run_for_extraction(self, run_id: str) -> list[Chunk]:
+        """Return chunks that should be sent to the LLM: keep, or gray with selected_for_llm true."""
+        keep = Chunk.prefilter_decision == "keep"
+        gray_selected = (Chunk.prefilter_decision == "gray") & (
+            Chunk.prefilter_features_jsonb.op("->>")("selected_for_llm") == "true"
+        )
+        result = self._session.execute(
+            select(Chunk).where(Chunk.run_id == run_id, or_(keep, gray_selected)).order_by(Chunk.id)
         )
         return list(result.scalars().all())

@@ -1,0 +1,34 @@
+# Virtual env and caches
+.venv
+venv
+__pycache__
+*.py[cod]
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Git and IDE
+.git
+.gitignore
+.cursor
+*.md
+!README.md
+
+# Tests and docs (not needed in runtime image)
+tests
+docs
+*.plan.md
+
+# Local env and secrets (never bake into image)
+.env
+.env.*
+*.pem
+
+# Build and misc
+dist
+build
+*.egg-info
+.DS_Store
