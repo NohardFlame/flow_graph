@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Редактор Графа — TestGen</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link rel="stylesheet" href="styles.css?v=2">
+</head>
+<body>
+
+    <div class="controls">
+        <label for="fileInput" class="file-button primary">
+            Выбрать
+            <input type="file" id="fileInput" accept=".json" hidden>
+        </label>
+        <span id="fileName" class="file-name"></span>
+        <button id="saveButton" class="primary">Сохранить</button>
+        <button id="addActionButton">Добавить Действие</button>
+        <button id="addStateButton">Добавить Объект/Состояние</button>
+        <button id="addLinkButton" class="success">+ Связь (1 → 2)</button>
+        <button id="runLayoutButton">Обновить компоновку</button>
+        <button id="importRunButton" type="button">Import from run</button>
+        <button id="testManagerToggle" class="tm-button">Test Manager</button>
+        <span class="hint">Клик на <b>Источник</b>, затем <b>Цель</b>. Удаление: <b>Del</b></span>
+    </div>
+
+    <div class="main-area">
+        <div id="cy"></div>
+
+        <div id="testManagerPanel" class="tm-panel hidden">
+            <div class="tm-header">
+                <span class="tm-title">Test Manager</span>
+                <button id="tmCollapseBtn" class="tm-collapse" title="Свернуть/развернуть">▾</button>
+                <button id="tmCloseBtn" class="tm-close" title="Закрыть">✕</button>
+            </div>
+
+            <div id="tmBody" class="tm-body">
+                <fieldset class="tm-fieldset">
+                    <legend>Режим генерации</legend>
+                    <label><input type="radio" name="rounds" value="ALL" checked> ALL</label>
+                    <label><input type="radio" name="rounds" value="QG"> QG</label>
+                    <label><input type="radio" name="rounds" value="RANDOM"> RANDOM</label>
+                </fieldset>
+
+                <fieldset class="tm-fieldset">
+                    <legend>Структура проверок</legend>
+                    <label><input type="radio" name="test_structure" value="LEAF" checked> LEAF</label>
+                    <label><input type="radio" name="test_structure" value="BRANCH"> BRANCH</label>
+                    <label><input type="radio" name="test_structure" value="TREE"> TREE</label>
+                </fieldset>
+
+                <fieldset class="tm-fieldset">
+                    <legend>Passage</legend>
+                    <label><input type="radio" name="passage" value="NONE" checked> NONE</label>
+                    <label><input type="radio" name="passage" value="API"> API</label>
+                    <label><input type="radio" name="passage" value="UI"> UI</label>
+                    <label><input type="radio" name="passage" value="UI_FULL"> UI FULL</label>
+                    <label><input type="radio" name="passage" value="MANUAL"> MANUAL</label>
+                    <label><input type="radio" name="passage" value="MANUAL_FULL"> MANUAL FULL</label>
+                </fieldset>
+
+                <fieldset class="tm-fieldset">
+                    <legend>Действия</legend>
+                    <button id="tmGenAll" class="primary tm-btn">Все кейсы</button>
+                    <button id="tmGenSelected" class="success tm-btn">Для выбранных</button>
+                    <button id="tmSaveToFile" class="tm-btn" style="background: #28a745; color: white;">Сохранить в файл</button>
+                </fieldset>
+
+                <!-- Новая панель для создания тест-кейсов -->
+                <div id="testCasePanel" class="tm-case-panel">
+                    <div class="tm-case-header">
+                        <span class="tm-case-title">Создание тест-кейсов</span>
+                        <button id="tmCaseCollapseBtn" class="tm-case-collapse" title="Свернуть/развернуть">▾</button>
+                    </div>
+
+                    <div id="tmCaseBody" class="tm-case-body">
+                        <div class="tm-case-notice">
+                            ⚠️ Выделите действия, которые были изменены
+                        </div>
+
+                        <div class="tm-case-buttons">
+                            <button class="tm-case-btn" data-type="after-code-back">После написания кода back</button>
+                            <button class="tm-case-btn" data-type="after-code-ui">После написания кода UI</button>
+                            <button class="tm-case-btn" data-type="before-testing">Перед передачей в тестирование</button>
+                            <button class="tm-case-btn" data-type="manual-changes">Для мануального тестирования изменений</button>
+                            <button class="tm-case-btn" data-type="impact-testing">Импакт тестирование</button>
+                            <button class="tm-case-btn" data-type="manual-regress">Мануальный регресс</button>
+                            <button class="tm-case-btn" data-type="ui-regress">UI регресс</button>
+                            <button class="tm-case-btn" data-type="before-prod">Перед продом</button>
+                            <button class="tm-case-btn" data-type="api-regress">API регресс</button>
+                            <button class="tm-case-btn tm-case-btn-full" data-type="full-test-plan">Весь тест план</button>
+                            <button id="tmCaseSaveToFile" class="tm-case-btn" data-type="save-all" style="background: #28a745; color: white; grid-column: span 2;">Сохранить все тест-кейсы в файл</button>
+                        </div>
+                    </div>
+                </div>
+
+                <textarea id="tmOutput" class="tm-output" readonly placeholder="Результат генерации…"></textarea>
+            </div>
+        </div>
+    </div>
+
+<script src="script.js?v=9"></script>
+</body>
+</html>

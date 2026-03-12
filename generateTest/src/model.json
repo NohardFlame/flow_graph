@@ -1,0 +1,132 @@
+{
+  "model_actions": [
+    {
+      "action_id": "a00001",
+      "action_actor": "пользователь",
+      "action_action": "создает документ",
+      "action_place": null
+    },
+    {
+      "action_id": "a00002",
+      "action_actor": "пользователь",
+      "action_action": "изменяет реквизиты документа",
+      "action_place": null
+    },
+    {
+      "action_id": "a00003",
+      "action_actor": "пользователь",
+      "action_action": "прикрепляет файл к документу",
+      "action_place": null
+    },
+    {
+      "action_id": "a00004",
+      "action_actor": null,
+      "action_action": "автоматически создает документ",
+      "action_place": null
+    }
+  ],
+  "model_objects": [
+    {
+      "object_id": "o00002",
+      "object_name": "документ",
+      "resource_state": [
+        {
+          "state_id": "s00002",
+          "state_name": "создан"
+        }
+      ]
+    },
+    {
+      "object_id": "o00003",
+      "object_name": "документ",
+      "resource_state": [
+        {
+          "state_id": "s00003",
+          "state_name": "изменен"
+        }
+      ]
+    },
+    {
+      "object_id": "o00004",
+      "object_name": "документ",
+      "resource_state": [
+        {
+          "state_id": "s00004",
+          "state_name": "прикреплен к файлу"
+        }
+      ]
+    },
+    {
+      "object_id": "o00005",
+      "object_name": "реквизиты",
+      "resource_state": [
+        {
+          "state_id": "s00005",
+          "state_name": "заполнены"
+        },
+        {
+          "state_id": "s00003",
+          "state_name": "не заполнены"
+        }
+      ]
+    },
+    {
+      "object_id": "o00007",
+      "object_name": "файл",
+      "resource_state": [
+        {
+          "state_id": "s00007",
+          "state_name": "прикреплен к документу"
+        }
+      ]
+    },
+    {
+      "object_id": "o00013",
+      "object_name": "процесс",
+      "resource_state": [
+        {
+          "state_id": "s00013",
+          "state_name": "начат"
+        }
+      ]
+    }
+  ],
+  "model_connections": [
+    {
+      "connection_out": "a00002",
+      "connection_in": "o00003s00003"
+    },
+    {
+      "connection_out": "a00002",
+      "connection_in": "o00005s00005"
+    },
+    {
+      "connection_out": "a00001",
+      "connection_in": "o00002s00002"
+    },
+    {
+      "connection_out": "o00002s00002",
+      "connection_in": "a00002"
+    },
+    {
+      "connection_out": "a00004",
+      "connection_in": "o00002s00002"
+    },
+    {
+      "connection_out": "a00003",
+      "connection_in": "o00007s00007"
+    },
+    {
+      "connection_out": "a00003",
+      "connection_in": "o00004s00004"
+    },
+    {
+      "connection_out": "a00004",
+      "connection_in": "o00013s00013"
+    },
+    {
+      "connection_out": "o00002s00002",
+      "connection_in": "a00003"
+    }
+  ]
+}

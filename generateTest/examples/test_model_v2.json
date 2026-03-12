@@ -1,0 +1,166 @@
+{
+  "model_actions": [
+    {
+      "action_id": "a00001",
+      "action_actor": "пользователь",
+      "action_action": "создает заказ",
+      "action_place": "в личном кабинете"
+    },
+    {
+      "action_id": "a00002",
+      "action_actor": "пользователь",
+      "action_action": "оплачивает заказ",
+      "action_place": "на странице оплаты"
+    },
+    {
+      "action_id": "a00003",
+      "action_actor": "менеджер",
+      "action_action": "подтверждает заказ",
+      "action_place": null
+    },
+    {
+      "action_id": "a00004",
+      "action_actor": null,
+      "action_action": "автоматически формирует накладную",
+      "action_place": null
+    },
+    {
+      "action_id": "a00005",
+      "action_actor": "курьер",
+      "action_action": "доставляет заказ",
+      "action_place": null
+    },
+    {
+      "action_id": "a00006",
+      "action_actor": "пользователь",
+      "action_action": "подтверждает получение",
+      "action_place": "в личном кабинете"
+    },
+    {
+      "action_id": "a00007",
+      "action_actor": "пользователь",
+      "action_action": "оформляет возврат",
+      "action_place": "в личном кабинете"
+    }
+  ],
+  "model_objects": [
+    {
+      "object_id": "o00001",
+      "object_name": "заказ",
+      "resource_state": [
+        {
+          "state_id": "s00001",
+          "state_name": "создан"
+        },
+        {
+          "state_id": "s00002",
+          "state_name": "оплачен"
+        },
+        {
+          "state_id": "s00003",
+          "state_name": "подтвержден"
+        },
+        {
+          "state_id": "s00004",
+          "state_name": "доставлен"
+        },
+        {
+          "state_id": "s00005",
+          "state_name": "завершен"
+        }
+      ]
+    },
+    {
+      "object_id": "o00002",
+      "object_name": "накладная",
+      "resource_state": [
+        {
+          "state_id": "s00006",
+          "state_name": "сформирована"
+        }
+      ]
+    },
+    {
+      "object_id": "o00003",
+      "object_name": "оплата",
+      "resource_state": [
+        {
+          "state_id": "s00007",
+          "state_name": "проведена"
+        }
+      ]
+    },
+    {
+      "object_id": "o00004",
+      "object_name": "возврат",
+      "resource_state": [
+        {
+          "state_id": "s00008",
+          "state_name": "оформлен"
+        }
+      ]
+    }
+  ],
+  "model_connections": [
+    {
+      "connection_out": "a00001",
+      "connection_in": "o00001s00001"
+    },
+    {
+      "connection_out": "o00001s00001",
+      "connection_in": "a00002"
+    },
+    {
+      "connection_out": "a00002",
+      "connection_in": "o00001s00002"
+    },
+    {
+      "connection_out": "a00002",
+      "connection_in": "o00003s00007"
+    },
+    {
+      "connection_out": "o00001s00002",
+      "connection_in": "a00003"
+    },
+    {
+      "connection_out": "a00003",
+      "connection_in": "o00001s00003"
+    },
+    {
+      "connection_out": "o00001s00003",
+      "connection_in": "a00004"
+    },
+    {
+      "connection_out": "a00004",
+      "connection_in": "o00002s00006"
+    },
+    {
+      "connection_out": "o00001s00003",
+      "connection_in": "a00005"
+    },
+    {
+      "connection_out": "o00002s00006",
+      "connection_in": "a00005"
+    },
+    {
+      "connection_out": "a00005",
+      "connection_in": "o00001s00004"
+    },
+    {
+      "connection_out": "o00001s00004",
+      "connection_in": "a00006"
+    },
+    {
+      "connection_out": "a00006",
+      "connection_in": "o00001s00005"
+    },
+    {
+      "connection_out": "o00001s00005",
+      "connection_in": "a00007"
+    },
+    {
+      "connection_out": "a00007",
+      "connection_in": "o00004s00008"
+    }
+  ]
+}

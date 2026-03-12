@@ -12,6 +12,8 @@
     .toolbar input { width: 280px; padding: 0.4rem 0.5rem; }
     .toolbar button { padding: 0.4rem 0.8rem; cursor: pointer; }
     .toolbar button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .toolbar-option { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.9rem; }
+    .toolbar-option select { padding: 0.25rem 0.5rem; min-width: 120px; }
     .message { padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; }
     .message.error { background: #fee; color: #c00; }
     .message.hidden { display: none; }
@@ -40,6 +42,9 @@
   <div class="toolbar">
     <input type="text" id="runIdInput" placeholder="Run ID" />
     <button type="button" id="showBtn">Show graph</button>
+    <label class="toolbar-option"><input type="checkbox" id="showEdgeLabels" /> Show edge labels</label>
+    <label class="toolbar-option">Actor: <select id="filterActor"></select></label>
+    <label class="toolbar-option">Object: <select id="filterObject"></select></label>
   </div>
   <div id="message" class="message hidden"></div>
   <div id="graphWrap" class="graph-wrap" style="display: none;"></div>
@@ -55,9 +60,14 @@
 
       const runIdInput = document.getElementById('runIdInput');
       const showBtn = document.getElementById('showBtn');
+      const showEdgeLabelsEl = document.getElementById('showEdgeLabels');
+      const filterActorEl = document.getElementById('filterActor');
+      const filterObjectEl = document.getElementById('filterObject');
       const messageEl = document.getElementById('message');
       const graphWrap = document.getElementById('graphWrap');
       const metaPanel = document.getElementById('metaPanel');
+
+      let currentActions = [];
 
       function showMessage(text, type) {
         messageEl.textContent = text;
@@ -120,15 +130,28 @@
         return div.innerHTML;
       }
 
-      const ROW_HEIGHT = 28;
-      const NODE_WIDTH = 120;
-      const NODE_HEIGHT = 22;
+      const ROW_HEIGHT = 38;
+      const NODE_WIDTH = 140;
+      const NODE_HEIGHT = 24;
       const LEFT_X = 24;
-      const RIGHT_X = 240;
+      const RIGHT_X = 340;
       const SVG_PAD = 40;
       const LABEL_OFFSET = -4;
+      const MULTI_EDGE_OFFSET = 7;
 
-      function renderGraph(items) {
+      function getFilteredActions() {
+        const actorVal = filterActorEl.value;
+        const objectVal = filterObjectEl.value;
+        return currentActions.filter(function (a) {
+          const ak = normKey(a.primary_actor_key);
+          const ok = normKey(a.primary_object_key);
+          if (actorVal !== '' && ak !== actorVal) return false;
+          if (objectVal !== '' && ok !== objectVal) return false;
+          return true;
+        });
+      }
+
+      function renderGraph(items, showEdgeLabels) {
         const actors = [];
         const objects = [];
         const actorSet = new Set();
@@ -233,7 +256,7 @@
           const parts = key.split(',');
           const ai = parseInt(parts[0], 10);
           const oi = parseInt(parts[1], 10);
-          const dy = (count === 1 ? 0 : (idx - (count - 1) / 2) * 4);
+          const dy = (count === 1 ? 0 : (idx - (count - 1) / 2) * MULTI_EDGE_OFFSET);
           const x1 = LEFT_X + NODE_WIDTH;
           const x2 = RIGHT_X;
           const y1 = SVG_PAD + ai * ROW_HEIGHT + ROW_HEIGHT / 2 + dy;
@@ -257,14 +280,16 @@
           hit.addEventListener('click', function () { renderMetadata(action); });
           g.appendChild(hit);
 
-          const labelText = action.action_label.length > 20 ? action.action_label.slice(0, 18) + '…' : action.action_label;
-          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          text.setAttribute('x', String(mx));
-          text.setAttribute('y', String(my + LABEL_OFFSET));
-          text.setAttribute('text-anchor', 'middle');
-          text.setAttribute('class', 'edge-label');
-          text.textContent = labelText;
-          g.appendChild(text);
+          if (showEdgeLabels) {
+            const labelText = action.action_label.length > 20 ? action.action_label.slice(0, 18) + '…' : action.action_label;
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', String(mx));
+            text.setAttribute('y', String(my + LABEL_OFFSET));
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('class', 'edge-label');
+            text.textContent = labelText;
+            g.appendChild(text);
+          }
 
           svg.appendChild(g);
           });
@@ -275,6 +300,42 @@
         graphWrap.style.display = 'block';
         renderMetadata(null);
       }
+
+      function fillFilterDropdowns(items) {
+        const actors = [];
+        const objects = [];
+        const as = new Set();
+        const os = new Set();
+        items.forEach(function (a) {
+          const ak = normKey(a.primary_actor_key);
+          const ok = normKey(a.primary_object_key);
+          if (!as.has(ak)) { as.add(ak); actors.push(ak); }
+          if (!os.has(ok)) { os.add(ok); objects.push(ok); }
+        });
+        actors.sort();
+        objects.sort();
+        filterActorEl.innerHTML = '<option value="">All</option>' + actors.map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(k.length > 30 ? k.slice(0, 28) + '…' : k) + '</option>'; }).join('');
+        filterObjectEl.innerHTML = '<option value="">All</option>' + objects.map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(k.length > 30 ? k.slice(0, 28) + '…' : k) + '</option>'; }).join('');
+      }
+
+      function applyFiltersAndRender() {
+        if (currentActions.length === 0) return;
+        const filtered = getFilteredActions();
+        if (filtered.length === 0) {
+          showMessage('No actions match the filter.', 'error');
+          renderGraph([], showEdgeLabelsEl.checked);
+          return;
+        }
+        hideMessage();
+        renderGraph(filtered, showEdgeLabelsEl.checked);
+      }
+
+      showEdgeLabelsEl.addEventListener('change', function () {
+        if (currentActions.length === 0) return;
+        applyFiltersAndRender();
+      });
+      filterActorEl.addEventListener('change', applyFiltersAndRender);
+      filterObjectEl.addEventListener('change', applyFiltersAndRender);
 
       showBtn.addEventListener('click', async function () {
         const runId = (runIdInput.value || '').trim();
@@ -307,8 +368,11 @@
           if (items.length === 0) {
             showMessage('No actions for this run.', 'error');
             graphWrap.style.display = 'none';
+            currentActions = [];
           } else {
-            renderGraph(items);
+            currentActions = items;
+            fillFilterDropdowns(items);
+            renderGraph(items, showEdgeLabelsEl.checked);
           }
         } catch (e) {
           showMessage('Network error: ' + e.message, 'error');
