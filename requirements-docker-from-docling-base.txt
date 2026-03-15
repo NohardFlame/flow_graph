@@ -1,0 +1,19 @@
+# Install only what the docling-serve-cpu image does NOT provide.
+# Base image already has: docling, torch, OCR (saves the longest install).
+# We still install fastapi/uvicorn so our app gets the versions it needs.
+
+boto3>=1.34
+fastapi>=0.115
+uvicorn[standard]>=0.32
+httpx>=0.27
+python-multipart>=0.0.9
+pydantic>=2
+pydantic-settings>=2
+sqlalchemy>=2
+alembic
+psycopg[binary]
+spacy>=3.7
+scikit-learn>=1.3
+litellm[google]>=1.80
+arq>=0.27
+unidecode>=1.3

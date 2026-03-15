@@ -17,6 +17,8 @@ from app.services.ingest_service import IngestService
 router = APIRouter(prefix="/documents", tags=["documents"])
 _log = get_logger(__name__)
 
+MAX_MULTI_FILE_PARTS = 10
+
 
 def _allowed_extensions_set() -> set[str]:
     return {x.strip().lower() for x in get_settings().api.allowed_extensions.split(",") if x.strip()}
@@ -84,6 +86,46 @@ async def upload_document(
         event="storage_write_complete",
         module="api.documents",
         document_id=document.id,
+    )
+    return DocumentCreatedResponse(
+        id=document.id,
+        original_filename=document.original_filename,
+        content_type=document.content_type,
+        size_bytes=document.size_bytes,
+    )
+
+
+@router.post("/multi", response_model=DocumentCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def upload_documents_multi(
+    files: list[UploadFile] = File(...),
+    ingest_service: IngestService = Depends(get_ingest_service),
+    metrics=Depends(get_metrics),
+):
+    """Upload multiple files as one document (one run will process all). Creates document and first version; does not create a run."""
+    if not files:
+        raise ValidationError("At least one file is required")
+    if len(files) > MAX_MULTI_FILE_PARTS:
+        raise ValidationError(f"Maximum {MAX_MULTI_FILE_PARTS} files allowed per upload")
+    max_bytes = get_settings().api.max_upload_bytes
+    parts: list[tuple[bytes, str, str]] = []
+    for file in files:
+        filename = file.filename or "unnamed"
+        content_type = _normalize_content_type(filename, file.content_type or "application/octet-stream")
+        body = await file.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ValidationError(f"File size exceeds maximum allowed ({max_bytes} bytes): {filename}")
+        _validate_upload(filename, content_type, len(body))
+        parts.append((body, filename, content_type))
+    document = ingest_service.ingest_multi(parts)
+    metrics.record_document_uploaded()
+    log_structured(
+        _log,
+        logging.INFO,
+        "multi-file upload accepted; storage write complete",
+        event="storage_write_complete",
+        module="api.documents",
+        document_id=document.id,
+        part_count=len(parts),
     )
     return DocumentCreatedResponse(
         id=document.id,

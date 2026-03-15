@@ -46,9 +46,10 @@
   <section>
     <h2>Upload</h2>
     <div class="upload-row">
-      <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt,.md" />
+      <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt,.md" multiple />
       <button type="button" id="uploadBtn">Upload</button>
     </div>
+    <p style="font-size: 0.85rem; color: #555; margin-top: 0.25rem;">Select one or more files (max 10). Multiple files are ingested as one document.</p>
     <div id="uploadMessage"></div>
     <ul class="doc-list" id="docList"></ul>
   </section>
@@ -110,24 +111,39 @@
       return div.innerHTML;
     }
 
+    const MAX_MULTI_FILES = 10;
+
     async function upload() {
-      const file = fileInput.files && fileInput.files[0];
-      if (!file) {
-        showMessage(uploadMessage, 'Choose a file first.', 'error');
+      const fileList = fileInput.files;
+      if (!fileList || fileList.length === 0) {
+        showMessage(uploadMessage, 'Choose one or more files first.', 'error');
+        return;
+      }
+      if (fileList.length > MAX_MULTI_FILES) {
+        showMessage(uploadMessage, 'Maximum ' + MAX_MULTI_FILES + ' files per upload.', 'error');
         return;
       }
       uploadBtn.disabled = true;
       showMessage(uploadMessage, '');
       try {
         const form = new FormData();
-        form.append('file', file);
-        const r = await fetch('/documents', { method: 'POST', body: form });
+        const isMulti = fileList.length > 1;
+        if (isMulti) {
+          for (let i = 0; i < fileList.length; i++) {
+            form.append('files', fileList[i]);
+          }
+        } else {
+          form.append('file', fileList[0]);
+        }
+        const url = isMulti ? '/documents/multi' : '/documents';
+        const r = await fetch(url, { method: 'POST', body: form });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
           showMessage(uploadMessage, data.detail || 'Upload failed.', 'error');
           return;
         }
-        showMessage(uploadMessage, 'Uploaded: ' + data.original_filename, 'success');
+        const label = isMulti ? fileList.length + ' files as one document' : data.original_filename;
+        showMessage(uploadMessage, 'Uploaded: ' + label, 'success');
         addDocument(data.id, data.original_filename, data.size_bytes);
         fileInput.value = '';
       } catch (e) {

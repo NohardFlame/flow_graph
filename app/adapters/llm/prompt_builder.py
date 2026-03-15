@@ -62,18 +62,18 @@ Output:
     "primary_object": "request",
     "primary_actor": "user",
     "input_state": null,
-    "output_state": null,
+    "output_state": "submited",
     "action_label": "user submits request",
     "suggested_actor_canonical": "user",
     "suggested_object_canonical": "request",
     "suggested_verb_canonical": "submit",
-    "suggested_state_canonical": null
+    "suggested_state_canonical": "submited"
   },
   {
     "verb": "changes status",
     "primary_object": "request",
     "primary_actor": "system",
-    "input_state": null,
+    "input_state": "submited",
     "output_state": "approved",
     "action_label": "system approves request",
     "suggested_actor_canonical": "system",

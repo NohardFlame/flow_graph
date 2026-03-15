@@ -1,0 +1,32 @@
+# Use pre-built Docling image (docling + PyTorch CPU already installed).
+# Saves ~5–15 min vs building from python:3.12-slim.
+# Image: https://github.com/docling-project/docling-serve/pkgs/container/docling-serve-cpu
+
+# syntax=docker/dockerfile:1
+FROM ghcr.io/docling-project/docling-serve-cpu:latest
+
+USER root
+WORKDIR /app
+
+# System deps our app needs (base may not have libpq or curl)
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install only what the base does NOT have (no docling/torch). Cached when file unchanged.
+COPY requirements-docker-from-docling-base.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefer-binary -r requirements-docker-from-docling-base.txt
+
+# Register the app package (editable, no deps). Stub only; real code is mounted at runtime.
+COPY pyproject.toml README.md ./
+RUN mkdir -p app && touch app/__init__.py && \
+    pip install -e . --no-deps
+
+# Non-root user for runtime
+RUN useradd -m -u 1000 appuser 2>/dev/null || true && chown -R appuser /app
+USER appuser
+
+EXPOSE 8000
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

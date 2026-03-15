@@ -19,6 +19,8 @@ _CONTENT_TYPE_TO_EXT: dict[str, str] = {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/gif": "gif",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 }
 _DEFAULT_EXT = "bin"
 
@@ -56,6 +58,19 @@ def raw_source_key(document_id: str, version_id: str, content_type: str) -> str:
     ver = _safe_segment(version_id, "version_id")
     ext = _extension_from_content_type(content_type)
     return f"raw/{doc}/{ver}/source.{ext}"
+
+
+def raw_source_part_key(
+    document_id: str, version_id: str, part_index: int, content_type: str
+) -> str:
+    """Key for one part of a multi-file document version. Deterministic.
+
+    Pattern: raw/{document_id}/{version_id}/part_{part_index}.{ext}
+    """
+    doc = _safe_segment(document_id, "document_id")
+    ver = _safe_segment(version_id, "version_id")
+    ext = _extension_from_content_type(content_type)
+    return f"raw/{doc}/{ver}/part_{part_index}.{ext}"
 
 
 def parsed_artifact_key(

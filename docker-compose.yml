@@ -1,17 +1,15 @@
 # Local stack: PostgreSQL, Redis, MinIO, API, worker.
-# Run migrations once: docker compose run --rm migrate
-# Then: docker compose up
-# Or first time: docker compose up (migrate runs first, then api and worker start).
+# All config from .env. For Docker: POSTGRES_HOST=postgres, REDIS_URL=redis://redis:6379/0, S3_ENDPOINT_URL=http://minio:9000.
+# App image uses pre-baked docling-serve-cpu base (faster build). To build from scratch use: dockerfile: Dockerfile
 
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: app
+    env_file: .env
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
@@ -31,14 +29,21 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+    env_file: .env
     ports:
       - "9000:9000"
+    volumes:
+      - minio_data:/data
 
   minio-init:
-    build: .
+    image: flow-graph-deps
+    build:
+      context: .
+      dockerfile: Dockerfile.docling-base
+    env_file: .env
+    volumes:
+      - .:/app
+    entrypoint: ["sh", "-c", "pip install -e . --no-deps && exec \"$@\"", "sh"]
     command: >
       python -c "
       import boto3, os, time
@@ -59,46 +64,36 @@ services:
       else:
         raise SystemExit('MinIO not ready')
       "
-    environment:
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_BUCKET: flow-graph
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
     depends_on:
       minio:
         condition: service_started
 
   migrate:
-    build: .
+    image: flow-graph-deps
+    build:
+      context: .
+      dockerfile: Dockerfile.docling-base
+    env_file: .env
+    volumes:
+      - .:/app
+    entrypoint: ["sh", "-c", "pip install -e . --no-deps && exec \"$@\"", "sh"]
     command: python -m alembic upgrade head
-    environment:
-      ENVIRONMENT: local
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: app
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
-    build: .
+    image: flow-graph-deps
+    build:
+      context: .
+      dockerfile: Dockerfile.docling-base
+    env_file: .env
+    volumes:
+      - .:/app
+    entrypoint: ["sh", "-c", "pip install -e . --no-deps && exec \"$@\"", "sh"]
     command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
-    environment:
-      ENVIRONMENT: local
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: app
-      REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_BUCKET: flow-graph
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -114,20 +109,15 @@ services:
       start_period: 10s
 
   worker:
-    build: .
+    image: flow-graph-deps
+    build:
+      context: .
+      dockerfile: Dockerfile.docling-base
+    env_file: .env
+    volumes:
+      - .:/app
+    entrypoint: ["sh", "-c", "pip install -e . --no-deps && exec \"$@\"", "sh"]
     command: arq app.workers.arq_tasks.WorkerSettings
-    environment:
-      ENVIRONMENT: local
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: app
-      REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_BUCKET: flow-graph
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -136,3 +126,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:

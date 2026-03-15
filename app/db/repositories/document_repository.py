@@ -38,7 +38,13 @@ class DocumentRepository:
         *,
         create_first_version: bool = False,
         source_storage_key: str | None = None,
+        source_parts: list[dict[str, str]] | None = None,
     ) -> Document:
+        """Save document. If create_first_version, pass source_storage_key (and optionally source_parts).
+
+        source_parts: list of {"storage_key": "...", "content_type": "..."}. When set,
+        source_storage_key must be the first part's key (used for backward compatibility).
+        """
         self._session.add(document)
         if create_first_version and source_storage_key is not None:
             version = DocumentVersion(
@@ -46,6 +52,7 @@ class DocumentRepository:
                 document_id=document.id,
                 version_number=1,
                 source_storage_key=source_storage_key,
+                source_parts_jsonb=source_parts,
                 created_at=datetime.now(timezone.utc),
             )
             self._session.add(version)

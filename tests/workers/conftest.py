@@ -139,6 +139,7 @@ def orchestration_context(
         document_id=doc_id,
         version_number=1,
         source_storage_key=storage_key,
+        source_parts_jsonb=None,
         created_at=datetime.now(timezone.utc),
     )
     session.add(version)

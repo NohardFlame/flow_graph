@@ -30,7 +30,7 @@ from app.db.repositories.run_event_repository import RunEventRepository
 from app.db.repositories.run_repository import RunRepository
 from app.domain.extraction_models import ExtractionResult
 from app.domain.normalization_models import NormalizedActionRecord
-from app.domain.parse_models import ExtractionChunk, ParsedDocument
+from app.domain.parse_models import ExtractionChunk, ParsedDocument, merge_parsed_documents
 from app.services.action_persistence import build_action_entities
 from app.services.chunk_assembler import ChunkAssembler
 from app.services.normalization_service import normalize_batch
@@ -285,10 +285,21 @@ class RunOrchestrator:
         version = self._document_repo.get_version(run.document_version_id)
         if version is None:
             raise NotFoundError(f"Document version not found: {run.document_version_id}")
-        try:
-            self._storage.head(version.source_storage_key)
-        except Exception as e:
-            raise StorageNotFoundError(f"Source file not in storage: {version.source_storage_key}") from e
+        parts = getattr(version, "source_parts_jsonb", None) or []
+        if parts:
+            for part in parts:
+                key = part.get("storage_key") if isinstance(part, dict) else None
+                if not key:
+                    raise StorageNotFoundError("Invalid source_parts entry: missing storage_key")
+                try:
+                    self._storage.head(key)
+                except Exception as e:
+                    raise StorageNotFoundError(f"Part not in storage: {key}") from e
+        else:
+            try:
+                self._storage.head(version.source_storage_key)
+            except Exception as e:
+                raise StorageNotFoundError(f"Source file not in storage: {version.source_storage_key}") from e
 
     def _step_parse_document(self, run_id: str) -> tuple[ParsedDocument, list[ExtractionChunk]]:
         run = self._run_repo.get(run_id)
@@ -301,10 +312,41 @@ class RunOrchestrator:
         if version is None:
             raise NotFoundError(f"Document version not found: {run.document_version_id}")
 
-        stream = self._storage.get_stream(version.source_storage_key)
-        body = stream.read()
-        parser = self._parser_factory(run.document_id, run_id)
-        parsed_document = parser.parse(body, doc.content_type)
+        parts = getattr(version, "source_parts_jsonb", None) or []
+        num_parts = len(parts) if parts else 1
+        log_structured(
+            _LOG,
+            logging.INFO,
+            "Parsing document (%s part(s))" % num_parts,
+            run_id=run_id,
+            event="parse_document_start",
+            module="run_orchestration",
+        )
+        if parts:
+            parsed_list: list[ParsedDocument] = []
+            parser = self._parser_factory(run.document_id, run_id)
+            for part_idx, part in enumerate(parts):
+                key = part.get("storage_key") if isinstance(part, dict) else None
+                content_type = (part.get("content_type") or doc.content_type) if isinstance(part, dict) else doc.content_type
+                if not key:
+                    raise StorageNotFoundError("Invalid source_parts entry: missing storage_key")
+                stream = self._storage.get_stream(key)
+                body = stream.read()
+                parsed_list.append(parser.parse(body, content_type))
+                log_structured(
+                    _LOG,
+                    logging.INFO,
+                    "Parsed part %s/%s" % (part_idx + 1, len(parts)),
+                    run_id=run_id,
+                    event="parse_part_done",
+                    module="run_orchestration",
+                )
+            parsed_document = merge_parsed_documents(run.document_id, run_id, parsed_list)
+        else:
+            stream = self._storage.get_stream(version.source_storage_key)
+            body = stream.read()
+            parser = self._parser_factory(run.document_id, run_id)
+            parsed_document = parser.parse(body, doc.content_type)
         chunks = self._chunk_assembler.assemble(parsed_document)
         save_parse_artifacts(
             self._storage,
@@ -326,6 +368,14 @@ class RunOrchestrator:
             if run is None:
                 raise NotFoundError(f"Run not found: {run_id}")
             chunks_in_memory = self._chunk_assembler.assemble(parsed_document) if parsed_document else []
+        log_structured(
+            _LOG,
+            logging.INFO,
+            "Building chunks (%s chunks)" % len(chunks_in_memory),
+            run_id=run_id,
+            event="build_chunks",
+            module="run_orchestration",
+        )
         for c in chunks_in_memory:
             self._chunk_repo.upsert_chunk(
                 run_id,
@@ -340,6 +390,14 @@ class RunOrchestrator:
         chunks = self._chunk_repo.list_by_run(run_id)
         if not chunks:
             return
+        log_structured(
+            _LOG,
+            logging.INFO,
+            "Doing prefilter (%s chunks)" % len(chunks),
+            run_id=run_id,
+            event="prefilter_chunks",
+            module="run_orchestration",
+        )
         extraction_chunks = [_chunk_to_extraction_chunk(c) for c in chunks]
         results: list[PrefilterResult] = self._prefilter_service.score_chunks(extraction_chunks)
         accept = sum(1 for r in results if str(r.decision) == "keep")
@@ -347,6 +405,23 @@ class RunOrchestrator:
         reject = sum(1 for r in results if str(r.decision) == "reject")
         if self._metrics is not None:
             self._metrics.record_prefilter_decisions(accept=accept, gray=gray, reject=reject)
+        total = len(chunks)
+        for idx, (c, res) in enumerate(zip(chunks, results)):
+            decision_str = str(res.decision)
+            if decision_str == "keep":
+                verdict = "accepted"
+            elif decision_str == "reject":
+                verdict = "rejected"
+            else:
+                verdict = "gray_accepted" if res.selected_for_llm else "gray_reject"
+            log_structured(
+                _LOG,
+                logging.INFO,
+                "Prefilter chunk %s/%s verdict=%s" % (idx + 1, total, verdict),
+                run_id=run_id,
+                event="prefilter_chunk",
+                module="run_orchestration",
+            )
         for c, res in zip(chunks, results):
             self._chunk_repo.upsert_chunk(
                 run_id,
@@ -378,11 +453,31 @@ class RunOrchestrator:
             if i > 0 and delay > 0:
                 time.sleep(delay)
             ext_chunk = _chunk_to_extraction_chunk(c)
+            log_structured(
+                _LOG,
+                logging.INFO,
+                "LLM chunk %s/%s (may trigger multiple provider calls on schema fallback or retry)"
+                % (i + 1, len(chunks)),
+                run_id=run_id,
+                event="llm_sent",
+                module="run_orchestration",
+            )
             result: ExtractionResult = extract_with_retry(
                 self._llm_adapter,
                 ext_chunk,
                 self._prompt_cfg,
                 self._max_extract_retries,
+            )
+            msg = "LLM response ok %s/%s drafts=%s" % (i + 1, len(chunks), len(result.drafts))
+            if result.status_code is not None:
+                msg += " status_code=%s" % result.status_code
+            log_structured(
+                _LOG,
+                logging.INFO,
+                msg,
+                run_id=run_id,
+                event="llm_response",
+                module="run_orchestration",
             )
             if self._metrics is not None:
                 self._metrics.record_llm_call(

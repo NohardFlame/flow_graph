@@ -2,6 +2,7 @@
 
 Run with: ENVIRONMENT=test POSTGRES_DB=app_test pytest tests/api -v
 PostgreSQL must be running and migrations applied (alembic upgrade head).
+If you see 'column "source_parts_jsonb" does not exist', run: alembic upgrade head
 """
 
 import io

@@ -71,9 +71,9 @@ class LiteLLMSettings(BaseSettings):
     model: str = "gpt-4o-mini"
     base_url: str | None = None
     fallback_model: str | None = None
-    max_retries: int = 2
+    max_retries: int = 0
     request_timeout: int = 60
-    repair_max_attempts: int = 1
+    repair_max_attempts: int = 0
     # Delay in seconds between LLM calls when processing multiple chunks (avoids 429 on free tier)
     extraction_delay_seconds: float = 10.0
 
@@ -112,6 +112,8 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WORKER_", extra="ignore")
     concurrency: int = 2
     queue_name: str = "default"
+    # Max time a single run job may run (parse + chunk + prefilter + extract + persist). ARQ default is 300s.
+    job_timeout_seconds: int = 900
 
 
 class QdrantSettings(BaseSettings):

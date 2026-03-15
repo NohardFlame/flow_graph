@@ -35,6 +35,7 @@ class DocumentVersion(Base):
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     source_storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_parts_jsonb: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     document: Mapped["Document"] = relationship(back_populates="versions")

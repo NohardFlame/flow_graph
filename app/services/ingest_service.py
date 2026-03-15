@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from app.core.checksum import sha256_hex
 from app.core.protocols import IdGeneratorProtocol, ObjectStorageProtocol
-from app.core.storage_keys import raw_source_key
+from app.core.storage_keys import raw_source_key, raw_source_part_key
 from app.db.models import Document
 
 
@@ -77,5 +77,55 @@ class IngestService:
             document,
             create_first_version=True,
             source_storage_key=key,
+        )
+        return document
+
+    def ingest_multi(
+        self,
+        parts: list[tuple[bytes, str, str]],
+    ) -> Document:
+        """Upload multiple files as one document (one version with multiple parts). Returns the created Document.
+
+        parts: list of (body, original_filename, content_type). At least one part required.
+        """
+        if not parts:
+            raise ValueError("At least one part required for ingest_multi")
+        document_id = self._generate_id()
+        version_id = self._generate_id()
+        source_parts: list[dict[str, str]] = []
+        total_size = 0
+        first_filename = ""
+        first_content_type = ""
+        first_checksum = ""
+        first_key = ""
+        for i, (body, original_filename, content_type) in enumerate(parts):
+            key = raw_source_part_key(document_id, version_id, i, content_type)
+            metadata = {
+                "checksum_sha256": sha256_hex(body),
+                "original_filename": _sanitize_filename(original_filename),
+            }
+            self._storage.put_bytes(key, body, content_type, metadata=metadata)
+            source_parts.append({"storage_key": key, "content_type": content_type})
+            total_size += len(body)
+            if i == 0:
+                first_filename = _sanitize_filename(original_filename)
+                first_content_type = content_type
+                first_checksum = sha256_hex(body)
+                first_key = key
+        now = datetime.now(timezone.utc)
+        document = Document(
+            id=document_id,
+            original_filename=first_filename if len(parts) == 1 else "Multi-file document",
+            content_type=first_content_type,
+            checksum_sha256=first_checksum,
+            size_bytes=total_size,
+            storage_key=first_key,
+            created_at=now,
+        )
+        self._document_repo.save(  # type: ignore[union-attr]
+            document,
+            create_first_version=True,
+            source_storage_key=first_key,
+            source_parts=source_parts,
         )
         return document

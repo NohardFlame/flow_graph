@@ -31,6 +31,8 @@ class ExtractionResult:
     # Optional: for audit when repair was used (Phase 8 can persist)
     raw_response: str | None = None
     repaired_response: str | None = None
+    # HTTP status code from provider when available (e.g. 200)
+    status_code: int | None = None
 
 
 @dataclass(frozen=True)

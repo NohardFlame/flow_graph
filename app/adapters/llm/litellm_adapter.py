@@ -83,6 +83,23 @@ def _get_usage(response: Any) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _get_status_code(response: Any) -> int | None:
+    """Extract HTTP status code from LiteLLM response when available."""
+    try:
+        code = getattr(response, "status_code", None)
+        if isinstance(code, int):
+            return code
+        hidden = getattr(response, "_hidden_params", None)
+        if isinstance(hidden, dict):
+            raw = hidden.get("response_obj") or hidden.get("raw_response")
+            code = getattr(raw, "status_code", None) if raw is not None else None
+            if isinstance(code, int):
+                return code
+        return None
+    except Exception:
+        return None
+
+
 class LiteLLMAdapter:
     """LLM gateway using LiteLLM. Implements LLMClientProtocol."""
 
@@ -91,7 +108,6 @@ class LiteLLMAdapter:
 
     def extract_actions(self, chunk: ExtractionChunk, prompt_cfg: Any) -> ExtractionResult:
         """Build prompt, call completion, parse response. Retry/repair handled inside."""
-        import litellm
         from litellm import completion
         from litellm.exceptions import (
             APIConnectionError,
@@ -111,8 +127,10 @@ class LiteLLMAdapter:
         model = self._settings.model
         fallback = self._settings.fallback_model
         max_retries = self._settings.max_retries
-        timeout = self._settings.request_timeout
+        timeout = self._settings.request_timeout or 120
+        timeout = max(60, int(timeout))
         repair_max = self._settings.repair_max_attempts
+        use_temperature = 1.0 if "gemini-3" in (model or "").lower() else 0.3
 
         retryable_exceptions = (Timeout, RateLimitError, ServiceUnavailableError, APIConnectionError)
         permanent_exceptions = (AuthenticationError, BadRequestError)
@@ -128,11 +146,20 @@ class LiteLLMAdapter:
                 schema_fallback_used = False
                 response = None
                 try:
+                    attempt_label = "retry %s" % (attempt + 1) if attempt > 0 else "attempt 1"
+                    log_structured(
+                        _LOG,
+                        logging.INFO,
+                        "LLM provider call %s (structured_output=True)" % attempt_label,
+                        provider="litellm",
+                        model=model,
+                        event="llm_provider_call",
+                    )
                     response = completion(
                         model=model,
                         messages=messages,
-                        temperature=0.1,
-                        timeout=timeout,
+                        temperature=use_temperature,
+                        timeout=float(timeout),
                         num_retries=0,
                         api_key=self._settings.api_key or None,
                         api_base=self._settings.base_url,
@@ -149,11 +176,19 @@ class LiteLLMAdapter:
                         event="extraction_schema_fallback",
                     )
                     schema_fallback_used = True
+                    log_structured(
+                        _LOG,
+                        logging.INFO,
+                        "LLM provider call (schema_fallback, structured_output=False)",
+                        provider="litellm",
+                        model=model,
+                        event="llm_provider_call",
+                    )
                     response = completion(
                         model=model,
                         messages=messages,
-                        temperature=0.1,
-                        timeout=timeout,
+                        temperature=use_temperature,
+                        timeout=float(timeout),
                         num_retries=0,
                         api_key=self._settings.api_key or None,
                         api_base=self._settings.base_url,
@@ -163,6 +198,9 @@ class LiteLLMAdapter:
                 content = _get_content(response)
                 in_t, out_t = _get_usage(response)
                 response_model = getattr(response, "model", None) or model
+                status_code = _get_status_code(response)
+                if status_code is None:
+                    status_code = 200  # success path implies HTTP 200
 
                 drafts, repaired_response = _parse_or_repair(
                     self, content, schema_version, prompt_cfg, repair_max
@@ -186,6 +224,7 @@ class LiteLLMAdapter:
                     schema_fallback_used=schema_fallback_used,
                     raw_response=content,
                     repaired_response=repaired_response,
+                    status_code=status_code,
                 )
             except ValidationError as e:
                 raise ExtractionError(f"Extraction validation failed: {e}") from e
@@ -224,11 +263,13 @@ class LiteLLMAdapter:
             f"Return only the corrected JSON, no explanation.\n\n{raw_output}"
         )
         try:
+            repair_timeout = self._settings.request_timeout or 120
+            repair_timeout = max(60, int(repair_timeout))
             response = completion(
                 model=self._settings.model,
                 messages=[{"role": "user", "content": repair_prompt}],
                 temperature=0,
-                timeout=self._settings.request_timeout,
+                timeout=float(repair_timeout),
                 num_retries=0,
                 api_key=self._settings.api_key or None,
                 api_base=self._settings.base_url,

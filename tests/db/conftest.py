@@ -4,6 +4,7 @@ To run Phase 1 DB tests:
   1. Start PostgreSQL.
   2. Create test DB: createdb app_test (or set POSTGRES_DB=app_test and create it).
   3. Apply migrations: ENVIRONMENT=test POSTGRES_DB=app_test alembic upgrade head
+     (Required after adding migration 002: adds source_parts_jsonb to document_versions.)
   4. Run: ENVIRONMENT=test POSTGRES_DB=app_test pytest tests/db -v
 """
 
@@ -114,7 +115,14 @@ def document_factory(
     )
 
 
-def document_version_factory(version_id: str, document_id: str, *, source_storage_key: str, version_number: int = 1):
+def document_version_factory(
+    version_id: str,
+    document_id: str,
+    *,
+    source_storage_key: str,
+    version_number: int = 1,
+    source_parts_jsonb: list[dict[str, str]] | None = None,
+):
     from datetime import datetime, timezone
     from app.db.models import DocumentVersion
     return DocumentVersion(
@@ -122,6 +130,7 @@ def document_version_factory(version_id: str, document_id: str, *, source_storag
         document_id=document_id,
         version_number=version_number,
         source_storage_key=source_storage_key,
+        source_parts_jsonb=source_parts_jsonb,
         created_at=datetime.now(timezone.utc),
     )
 
