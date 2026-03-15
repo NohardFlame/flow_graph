@@ -6,6 +6,7 @@ from typing import Any
 from app.adapters.parser.docling_adapter import DoclingParserAdapter
 from app.adapters.storage.fake_storage import FakeObjectStorage
 from app.adapters.storage.s3_storage import S3ObjectStorage
+from app.adapters.llm.context_window import get_max_input_tokens
 from app.config.settings import get_settings
 from app.core.constants import EXTRACTION_PROMPT_VERSION, EXTRACTION_SCHEMA_VERSION
 from app.core.normalization_config import load_normalization_config
@@ -64,6 +65,8 @@ def get_worker_deps() -> dict[str, Any]:
         "clock": _default_clock(),
         "max_extract_retries": settings.litellm.max_retries,
         "extraction_delay_seconds": settings.litellm.extraction_delay_seconds,
+        "max_input_tokens": get_max_input_tokens(settings.litellm),
+        "extraction_context_chunks_up": settings.litellm.extraction_context_chunks_up,
         "extraction_prompt_cfg": {
             "prompt_version": EXTRACTION_PROMPT_VERSION,
             "schema_version": EXTRACTION_SCHEMA_VERSION,
@@ -97,5 +100,7 @@ def build_orchestrator(session: Any) -> RunOrchestrator:
         clock=deps["clock"],
         max_extract_retries=deps["max_extract_retries"],
         extraction_delay_seconds=deps["extraction_delay_seconds"],
+        max_input_tokens=deps["max_input_tokens"],
+        extraction_context_chunks_up=deps["extraction_context_chunks_up"],
         extraction_prompt_cfg=deps["extraction_prompt_cfg"],
     )

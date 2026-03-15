@@ -33,6 +33,7 @@ class ChunkRepository:
         prefilter_score: float | None = None,
         prefilter_decision: str | None = None,
         prefilter_features: dict[str, Any] | None = None,
+        constituent_chunk_hashes: list[str] | None = None,
     ) -> Chunk:
         chunk_id = str(uuid.uuid4())
         stmt = insert(Chunk).values(
@@ -46,6 +47,7 @@ class ChunkRepository:
             prefilter_score=prefilter_score,
             prefilter_decision=prefilter_decision,
             prefilter_features_jsonb=prefilter_features,
+            constituent_chunk_hashes=constituent_chunk_hashes,
         ).on_conflict_do_update(
             index_elements=["run_id", "chunk_hash"],
             set_=dict(
@@ -56,6 +58,7 @@ class ChunkRepository:
                 prefilter_score=prefilter_score,
                 prefilter_decision=prefilter_decision,
                 prefilter_features_jsonb=prefilter_features,
+                constituent_chunk_hashes=constituent_chunk_hashes,
             ),
         )
         self._session.execute(stmt)

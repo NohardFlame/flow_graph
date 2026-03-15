@@ -28,6 +28,24 @@ def build_extraction_cache_key(
     return "|".join(parts)
 
 
+def build_batch_cache_key(
+    model: str,
+    prompt_version: str,
+    schema_version: str,
+    chunk_ids: list[str],
+    normalization_config_version: str = "",
+) -> str:
+    """Build a deterministic cache key for a batch extraction (glued chunks)."""
+    batch_part = ",".join(sorted(chunk_ids)) if chunk_ids else ""
+    return build_extraction_cache_key(
+        model,
+        prompt_version,
+        schema_version,
+        batch_part,
+        normalization_config_version,
+    )
+
+
 class InMemoryExtractionCache:
     """In-memory cache for ExtractionResult. Cache hit returns result with cache_hit=True."""
 
@@ -66,4 +84,5 @@ def with_cache_hit(result: ExtractionResult) -> ExtractionResult:
         schema_fallback_used=result.schema_fallback_used,
         raw_response=result.raw_response,
         repaired_response=result.repaired_response,
+        status_code=result.status_code,
     )

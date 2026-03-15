@@ -142,3 +142,35 @@ def build_extraction_messages(
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},
     ]
+
+
+# Minimal separator between glued chunks so the model sees one document (no chunk IDs).
+BATCH_CHUNK_SEPARATOR = "\n\n---\n\n"
+
+
+def build_extraction_messages_batch(
+    chunks: list[ExtractionChunk],
+    prompt_version: str,
+    schema_version: str,
+    normalization_hint: str | None = None,
+) -> list[dict[str, str]]:
+    """Build messages for batched extraction: one document (glued chunk texts), no chunk IDs in prompt."""
+    norm_guidance = normalization_hint.strip() if normalization_hint else EXTRACTION_NORMALIZATION_DESCRIPTION
+    system_content = (
+        "You extract structured action facts from business and system documents.\n\n"
+        f"{EXTRACTION_OUTPUT_HINT}\n\n"
+        f"{EXTRACTION_TASK_DESCRIPTION}\n\n"
+        f"{norm_guidance}\n\n"
+        f"{EXTRACTION_FEW_SHOTS}"
+    )
+    glued_text = BATCH_CHUNK_SEPARATOR.join(c.chunk_text for c in chunks)
+    user_content = (
+        "Extract actions from the document below.\n"
+        "Return JSON only.\n\n"
+        "---\n\n"
+        f"{glued_text}"
+    )
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]

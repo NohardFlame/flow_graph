@@ -10,7 +10,7 @@ from app.adapters.llm.extraction_schema import (
     EXTRACTION_JSON_SCHEMA,
     EXTRACTION_SCHEMA_NAME,
 )
-from app.adapters.llm.prompt_builder import build_extraction_messages
+from app.adapters.llm.prompt_builder import build_extraction_messages, build_extraction_messages_batch
 from app.adapters.llm.response_parser import parse_extraction_response
 from app.config.logging import get_logger, log_structured
 from app.config.settings import LiteLLMSettings
@@ -249,6 +249,119 @@ class LiteLLMAdapter:
             raise _map_litellm_exception(last_err)
         raise ExtractionError("extract_actions: unexpected")
 
+    def extract_actions_batch(
+        self, chunks: list[ExtractionChunk], prompt_cfg: Any
+    ) -> ExtractionResult:
+        """Extract from multiple chunks as one document (glued). One completion, one flat list of drafts."""
+        if not chunks:
+            return ExtractionResult(
+                drafts=(),
+                provider="litellm",
+                model=self._settings.model,
+                prompt_version=_str_from_cfg(prompt_cfg, "prompt_version", "v1"),
+                schema_version=_str_from_cfg(prompt_cfg, "schema_version", "v1"),
+                cache_hit=False,
+                retry_count=0,
+                latency_ms=None,
+                input_tokens=None,
+                output_tokens=None,
+                estimated_cost_usd=None,
+                warnings=(),
+            )
+        from litellm import completion
+        from litellm.exceptions import (
+            APIConnectionError,
+            AuthenticationError,
+            BadRequestError,
+            RateLimitError,
+            ServiceUnavailableError,
+            Timeout,
+        )
+
+        prompt_version = _str_from_cfg(prompt_cfg, "prompt_version", "v1")
+        schema_version = _str_from_cfg(prompt_cfg, "schema_version", "v1")
+        norm_hint = _str_from_cfg(prompt_cfg, "normalization_hint", None) or None
+        messages = build_extraction_messages_batch(
+            chunks, prompt_version, schema_version, normalization_hint=norm_hint
+        )
+        model = self._settings.model
+        timeout = self._settings.request_timeout or 120
+        timeout = max(60, int(timeout))
+        repair_max = self._settings.repair_max_attempts
+        use_temperature = 1.0 if "gemini-3" in (model or "").lower() else 0.3
+
+        retryable_exceptions = (Timeout, RateLimitError, ServiceUnavailableError, APIConnectionError)
+        permanent_exceptions = (AuthenticationError, BadRequestError)
+        last_err: BaseException | None = None
+        retry_count = 0
+
+        for attempt in range(self._settings.max_retries + 1):
+            try:
+                start = time.perf_counter()
+                response = None
+                try:
+                    response = completion(
+                        model=model,
+                        messages=messages,
+                        temperature=use_temperature,
+                        timeout=float(timeout),
+                        num_retries=0,
+                        api_key=self._settings.api_key or None,
+                        api_base=self._settings.base_url,
+                        response_format=_RESPONSE_FORMAT,
+                    )
+                except BadRequestError:
+                    response = completion(
+                        model=model,
+                        messages=messages,
+                        temperature=use_temperature,
+                        timeout=float(timeout),
+                        num_retries=0,
+                        api_key=self._settings.api_key or None,
+                        api_base=self._settings.base_url,
+                    )
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                content = _get_content(response)
+                in_t, out_t = _get_usage(response)
+                response_model = getattr(response, "model", None) or model
+                status_code = _get_status_code(response) or 200
+                drafts, repaired_response = _parse_or_repair(
+                    self, content, schema_version, prompt_cfg, repair_max
+                )
+                return ExtractionResult(
+                    drafts=tuple(drafts),
+                    provider="litellm",
+                    model=response_model,
+                    prompt_version=prompt_version,
+                    schema_version=schema_version,
+                    cache_hit=False,
+                    retry_count=retry_count,
+                    latency_ms=elapsed_ms,
+                    input_tokens=in_t,
+                    output_tokens=out_t,
+                    estimated_cost_usd=None,
+                    warnings=(),
+                    raw_response=content,
+                    repaired_response=repaired_response,
+                    status_code=status_code,
+                )
+            except ValidationError as e:
+                raise ExtractionError(f"Extraction validation failed: {e}") from e
+            except permanent_exceptions as e:
+                raise _map_litellm_exception(e)
+            except retryable_exceptions as e:
+                last_err = e
+                retry_count += 1
+                if attempt >= self._settings.max_retries:
+                    raise _map_litellm_exception(e)
+            except Exception as e:
+                if isinstance(e, (ValidationError, ExtractionError)):
+                    raise
+                raise _map_litellm_exception(e)
+        if last_err is not None:
+            raise _map_litellm_exception(last_err)
+        raise ExtractionError("extract_actions_batch: unexpected")
+
     def repair_json(self, raw_output: str, schema_cfg: Any) -> RepairResult:
         """One short repair call: fix invalid JSON to match schema."""
         import litellm
@@ -311,4 +424,6 @@ def _parse_or_repair(
             e,
             exc_info=False,
         )
+        if repair_max == 0:
+            raise
         return [], None

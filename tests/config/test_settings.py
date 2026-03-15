@@ -10,6 +10,7 @@ class TestSettingsLoading:
     """Settings loading from environment."""
 
     def test_loads_valid_settings_from_environment(self, env_minimal_valid):
+        reset_settings_cache()
         settings = get_settings()
         assert settings.environment == "test"
 

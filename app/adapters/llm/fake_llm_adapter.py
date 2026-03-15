@@ -41,9 +41,24 @@ class FakeLLMAdapter:
         item = self._extraction_queue.pop(0)
         if isinstance(item, BaseException):
             raise item
+        return self._make_result(item, prompt_cfg)
+
+    def extract_actions_batch(
+        self, chunks: Sequence[ExtractionChunk], prompt_cfg: Any
+    ) -> ExtractionResult:
+        """One batch call consumes one response from the queue (same as single chunk)."""
+        self._extract_call_count += 1
+        if not self._extraction_queue:
+            raise RuntimeError("FakeLLMAdapter: no more extraction responses configured")
+        item = self._extraction_queue.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return self._make_result(item, prompt_cfg)
+
+    def _make_result(self, raw: str, prompt_cfg: Any) -> ExtractionResult:
         schema_version = _get_str(prompt_cfg, "schema_version", "v1")
         prompt_version = _get_str(prompt_cfg, "prompt_version", "v1")
-        drafts = parse_extraction_response(item, schema_version)
+        drafts = parse_extraction_response(raw, schema_version)
         meta = {
             "provider": "fake",
             "model": "fake",

@@ -23,6 +23,10 @@ def is_retryable(err: BaseException) -> bool:
 class ExtractActionsProtocol(Protocol):
     def extract_actions(self, chunk: ExtractionChunk, prompt_cfg: Any) -> ExtractionResult: ...
 
+    def extract_actions_batch(
+        self, chunks: list[ExtractionChunk], prompt_cfg: Any
+    ) -> ExtractionResult: ...
+
 
 def extract_with_retry(
     adapter: ExtractActionsProtocol,
@@ -49,3 +53,25 @@ def extract_with_retry(
     if last_err is not None:
         raise last_err
     raise RuntimeError("extract_with_retry: unexpected")
+
+
+def extract_batch_with_retry(
+    adapter: ExtractActionsProtocol,
+    chunks: list[ExtractionChunk],
+    prompt_cfg: Any,
+    max_retries: int,
+) -> ExtractionResult:
+    """Call adapter.extract_actions_batch with retries on RetryableExternalError."""
+    last_err: BaseException | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            return adapter.extract_actions_batch(chunks, prompt_cfg)
+        except BaseException as e:
+            last_err = e
+            if not is_retryable(e):
+                raise
+            if attempt < max_retries:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("extract_batch_with_retry: unexpected")

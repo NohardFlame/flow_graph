@@ -4,7 +4,7 @@ To run Phase 1 DB tests:
   1. Start PostgreSQL.
   2. Create test DB: createdb app_test (or set POSTGRES_DB=app_test and create it).
   3. Apply migrations: ENVIRONMENT=test POSTGRES_DB=app_test alembic upgrade head
-     (Required after adding migration 002: adds source_parts_jsonb to document_versions.)
+     (Required after adding new migrations, e.g. 002 source_parts_jsonb, 003 constituent_chunk_hashes.)
   4. Run: ENVIRONMENT=test POSTGRES_DB=app_test pytest tests/db -v
 """
 

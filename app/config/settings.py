@@ -76,6 +76,12 @@ class LiteLLMSettings(BaseSettings):
     repair_max_attempts: int = 0
     # Delay in seconds between LLM calls when processing multiple chunks (avoids 429 on free tier)
     extraction_delay_seconds: float = 10.0
+    # Context window size (tokens). If 0, use model-based default.
+    context_window: int = 0
+    # Fraction of context window to use for input (rest for output). 0.7 = 70% input.
+    context_window_fill_ratio: float = 0.7
+    # Hierarchical context: include up to N parent-level chunks per selected chunk (by section_path).
+    extraction_context_chunks_up: int = 1
 
 
 class PrefilterSettings(BaseSettings):

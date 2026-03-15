@@ -229,6 +229,9 @@ class TestCacheHitCounter:
         class CachingFakeAdapter(FakeLLMAdapter):
             def extract_actions(self, chunk, prompt_cfg):
                 return cached_result
+
+            def extract_actions_batch(self, chunks, prompt_cfg):
+                return cached_result
         orchestrator = RunOrchestrator(
             run_repo=RunRepository(session),
             document_repo=DocumentRepository(session),
@@ -245,6 +248,8 @@ class TestCacheHitCounter:
             clock=_Clock(),
             max_extract_retries=0,
             extraction_prompt_cfg={"prompt_version": "v1", "schema_version": "v1"},
+            max_input_tokens=89600,
+            extraction_context_chunks_up=0,
             metrics=metrics,
         )
         orchestrator.execute_run(run_id)

@@ -91,6 +91,8 @@ class Chunk(Base):
     prefilter_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     prefilter_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     prefilter_features_jsonb: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # For composite (glued) batch chunks: array of chunk_hashes that were glued. Null for normal chunks.
+    constituent_chunk_hashes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     run: Mapped["Run"] = relationship(back_populates="chunks")
     llm_calls: Mapped[list["LLMCall"]] = relationship(back_populates="chunk", cascade="all, delete-orphan")

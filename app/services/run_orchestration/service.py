@@ -7,10 +7,12 @@ import time
 from collections.abc import Callable
 from typing import Any, Optional
 
-from app.adapters.llm.retry_repair import ExtractActionsProtocol, extract_with_retry
+from app.adapters.llm.prompt_builder import BATCH_CHUNK_SEPARATOR
+from app.adapters.llm.retry_repair import ExtractActionsProtocol, extract_batch_with_retry
 from app.core.constants import (
     EXTRACTION_PROMPT_VERSION,
     EXTRACTION_SCHEMA_VERSION,
+    PrefilterDecision,
     RUN_PIPELINE_STEPS,
     RunStatus,
 )
@@ -37,8 +39,14 @@ from app.db.repositories.run_repository import RunRepository
 from app.domain.extraction_models import ExtractionResult
 from app.domain.normalization_models import NormalizedActionRecord
 from app.domain.parse_models import ExtractionChunk, ParsedDocument, merge_parsed_documents
+from app.core.token_estimate import estimated_tokens
 from app.services.action_persistence import build_action_entities
 from app.services.chunk_assembler import ChunkAssembler
+from app.services.extraction_batching import (
+    batch_chunks_for_context,
+    build_batch_chunk_hash,
+    expand_with_context_chunks,
+)
 from app.services.normalization_service import normalize_batch
 from app.services.parse_artifact_service import save_parse_artifacts
 from app.services.prefilter.prefilter_models import PrefilterResult
@@ -96,6 +104,8 @@ class RunOrchestrator:
         max_extract_retries: int = 2,
         extraction_prompt_cfg: dict[str, Any] | None = None,
         extraction_delay_seconds: float = 0.0,
+        max_input_tokens: int = 89600,
+        extraction_context_chunks_up: int = 1,
         optional_indexer: Optional[Callable[[str], None]] = None,
         metrics: Optional[MetricsRecorder] = None,
     ) -> None:
@@ -118,6 +128,8 @@ class RunOrchestrator:
             "schema_version": EXTRACTION_SCHEMA_VERSION,
         }
         self._extraction_delay_seconds = max(0.0, extraction_delay_seconds)
+        self._max_input_tokens = max_input_tokens
+        self._extraction_context_chunks_up = max(0, extraction_context_chunks_up)
         self._optional_indexer = optional_indexer
         self._metrics = metrics
 
@@ -442,36 +454,60 @@ class RunOrchestrator:
             )
 
     def _step_extract_actions(self, run_id: str) -> list[Any]:
-        chunks = self._chunk_repo.list_by_run_for_extraction(run_id)
+        all_chunks = self._chunk_repo.list_by_run(run_id)
+        selected = self._chunk_repo.list_by_run_for_extraction(run_id)
         out: list[Any] = []
         delay = self._extraction_delay_seconds
-        if chunks:
-            log_structured(
-                _LOG,
-                logging.INFO,
-                "Extracting actions: chunk count and delay between chunks",
-                run_id=run_id,
-                chunk_count=len(chunks),
-                extraction_delay_seconds=delay,
-                event="extract_actions_start",
-            )
-        for i, c in enumerate(chunks):
-            if i > 0 and delay > 0:
+        if not selected:
+            return out
+        expanded = expand_with_context_chunks(
+            all_chunks, selected, self._extraction_context_chunks_up
+        )
+        from app.adapters.llm.prompt_builder import build_extraction_messages_batch
+        dummy = ExtractionChunk(
+            chunk_id="",
+            section_path=[],
+            chunk_text="",
+            source_spans={},
+            page_refs=[],
+            estimated_tokens=0,
+        )
+        system_messages = build_extraction_messages_batch(
+            [dummy], "v1", "v1"
+        )
+        system_prompt_tokens = estimated_tokens(system_messages[0]["content"])
+        batches = batch_chunks_for_context(
+            expanded,
+            self._max_input_tokens,
+            system_prompt_tokens,
+        )
+        log_structured(
+            _LOG,
+            logging.INFO,
+            "Extracting actions: batches (expanded from %s selected chunks), delay between batches"
+            % len(selected),
+            run_id=run_id,
+            batch_count=len(batches),
+            extraction_delay_seconds=delay,
+            event="extract_actions_start",
+        )
+        for batch_idx, batch in enumerate(batches):
+            if batch_idx > 0 and delay > 0:
                 time.sleep(delay)
-            ext_chunk = _chunk_to_extraction_chunk(c)
+            ext_chunks = [_chunk_to_extraction_chunk(c) for c in batch]
             log_structured(
                 _LOG,
                 logging.INFO,
-                "LLM chunk %s/%s (may trigger multiple provider calls on schema fallback or retry)"
-                % (i + 1, len(chunks)),
+                "LLM batch %s/%s (%s chunks)"
+                % (batch_idx + 1, len(batches), len(batch)),
                 run_id=run_id,
                 event="llm_sent",
                 module="run_orchestration",
             )
             try:
-                result: ExtractionResult = extract_with_retry(
+                result: ExtractionResult = extract_batch_with_retry(
                     self._llm_adapter,
-                    ext_chunk,
+                    ext_chunks,
                     self._prompt_cfg,
                     self._max_extract_retries,
                 )
@@ -479,20 +515,18 @@ class RunOrchestrator:
                 log_structured(
                     _LOG,
                     logging.WARNING,
-                    "Skipping chunk %s/%s after retries (e.g. timeout): %s"
-                    % (i + 1, len(chunks), e),
+                    "Skipping batch %s/%s after retries: %s"
+                    % (batch_idx + 1, len(batches), e),
                     run_id=run_id,
                     event="extract_chunk_skipped",
                     module="run_orchestration",
                 )
                 continue
-            msg = "LLM response ok %s/%s drafts=%s" % (i + 1, len(chunks), len(result.drafts))
-            if result.status_code is not None:
-                msg += " status_code=%s" % result.status_code
             log_structured(
                 _LOG,
                 logging.INFO,
-                msg,
+                "LLM batch response %s/%s drafts=%s"
+                % (batch_idx + 1, len(batches), len(result.drafts)),
                 run_id=run_id,
                 event="llm_response",
                 module="run_orchestration",
@@ -504,8 +538,34 @@ class RunOrchestrator:
                     output_tokens=result.output_tokens,
                     estimated_cost=result.estimated_cost_usd,
                 )
+            batch_hash = build_batch_chunk_hash([c.chunk_hash for c in batch])
+            glued_text = BATCH_CHUNK_SEPARATOR.join(c.text or "" for c in batch)
+            first = batch[0]
+            path_list = (
+                first.section_path_jsonb.get("path", [])
+                if isinstance(first.section_path_jsonb, dict)
+                else (first.section_path_jsonb or [])
+            )
+            refs_list = (
+                first.page_refs_jsonb.get("refs", [])
+                if isinstance(first.page_refs_jsonb, dict)
+                else (first.page_refs_jsonb or [])
+            )
+            est_tokens = sum(c.estimated_tokens or 0 for c in batch)
+            composite = self._chunk_repo.upsert_chunk(
+                run_id,
+                batch_hash,
+                glued_text,
+                section_path=_section_path_for_repo(path_list),
+                page_refs=_page_refs_for_repo(refs_list),
+                estimated_tokens=est_tokens,
+                prefilter_decision=PrefilterDecision.KEEP,
+                constituent_chunk_hashes=[c.chunk_hash for c in batch],
+            )
+            section_path_list = path_list
+            page_refs_list = refs_list
             for d in result.drafts:
-                out.append((d, c.id, ext_chunk.chunk_text, ext_chunk.section_path, ext_chunk.page_refs, result))
+                out.append((d, composite.id, glued_text, section_path_list, page_refs_list, result))
         return out
 
     def _step_normalize_actions(self, drafts_with_meta: list[Any]) -> list[Any]:
