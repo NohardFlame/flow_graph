@@ -1,0 +1,9 @@
+# Actor / role (Russian stems; use roots so they match inflected forms)
+пользовател
+админ
+систем
+роль
+администратор
+исполнитель
+утверждающ
+проверяющ

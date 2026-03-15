@@ -1,0 +1,10 @@
+# Restriction / must not / prohibited (Russian stems)
+запрет
+нельз
+обяз
+долж
+должен
+запреща
+запрещен
+обязан
+обязанн

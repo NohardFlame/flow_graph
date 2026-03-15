@@ -14,7 +14,13 @@ from app.core.constants import (
     RUN_PIPELINE_STEPS,
     RunStatus,
 )
-from app.core.errors import NotFoundError, ParsingError, StorageNotFoundError, ValidationError
+from app.core.errors import (
+    NotFoundError,
+    ParsingError,
+    RetryableExternalError,
+    StorageNotFoundError,
+    ValidationError,
+)
 from app.core.metrics import MetricsRecorder
 from app.core.normalization_config import NormalizationConfig
 from app.core.protocols import (
@@ -462,12 +468,24 @@ class RunOrchestrator:
                 event="llm_sent",
                 module="run_orchestration",
             )
-            result: ExtractionResult = extract_with_retry(
-                self._llm_adapter,
-                ext_chunk,
-                self._prompt_cfg,
-                self._max_extract_retries,
-            )
+            try:
+                result: ExtractionResult = extract_with_retry(
+                    self._llm_adapter,
+                    ext_chunk,
+                    self._prompt_cfg,
+                    self._max_extract_retries,
+                )
+            except RetryableExternalError as e:
+                log_structured(
+                    _LOG,
+                    logging.WARNING,
+                    "Skipping chunk %s/%s after retries (e.g. timeout): %s"
+                    % (i + 1, len(chunks), e),
+                    run_id=run_id,
+                    event="extract_chunk_skipped",
+                    module="run_orchestration",
+                )
+                continue
             msg = "LLM response ok %s/%s drafts=%s" % (i + 1, len(chunks), len(result.drafts))
             if result.status_code is not None:
                 msg += " status_code=%s" % result.status_code

@@ -2,7 +2,10 @@
 
 import pytest
 
-from app.services.prefilter.features.context_boost import context_boost_score
+from app.services.prefilter.features.context_boost import (
+    _tokenize_for_window,
+    context_boost_score,
+)
 
 
 def test_context_boost_action_near_object():
@@ -39,6 +42,30 @@ def test_context_boost_role_modal():
         object_terms=[],
         modal_restriction_terms=["may"],
         role_terms=["admin"],
+        state_terms=[],
+    )
+    assert score > 0
+
+
+def test_tokenize_for_window_includes_cyrillic():
+    """Tokenizer produces Cyrillic tokens so Russian words participate in windows."""
+    tokens = _tokenize_for_window("user может выполнить действие")
+    assert "может" in tokens
+    assert "выполнить" in tokens
+    assert "действие" in tokens
+    assert "user" in tokens
+
+
+def test_context_boost_russian_stem_in_word():
+    """Window containing Russian word that contains a permission stem gets boost with role stem."""
+    # Use stems that are substrings of inflected forms: "пользовател" in "пользователю"/"пользователь"
+    text = "Пользователю разрешается копировать документ."
+    score = context_boost_score(
+        text,
+        action_terms=[],
+        object_terms=[],
+        modal_restriction_terms=["разреш"],
+        role_terms=["пользовател"],
         state_terms=[],
     )
     assert score > 0

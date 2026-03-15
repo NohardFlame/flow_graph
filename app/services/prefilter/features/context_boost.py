@@ -4,10 +4,25 @@ from __future__ import annotations
 
 import re
 
+# ASCII alphanumeric + Cyrillic (U+0400–U+04FF) for Russian and similar scripts
+_TOKEN_PATTERN = re.compile(r"[a-z0-9\u0400-\u04ff]+", re.IGNORECASE)
+
 
 def _tokenize_for_window(text: str) -> list[str]:
-    """Simple tokenization: lowercase words (alphanumeric)."""
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Tokenization: lowercase words (ASCII + Cyrillic alphanumeric)."""
+    return [m.lower() for m in _TOKEN_PATTERN.findall(text)]
+
+
+def _window_has_term_match(window_tokens: list[str], terms: list[str]) -> bool:
+    """True if any token in window contains any term as substring (stem-in-word or exact)."""
+    if not terms:
+        return False
+    window_set = set(window_tokens)
+    for t in window_set:
+        for p in terms:
+            if p in t:
+                return True
+    return False
 
 
 def context_boost_score(
@@ -23,6 +38,7 @@ def context_boost_score(
     """Score 0..1 for co-occurrence of signal types within a token window.
 
     Boosts: action near object; modal/restriction near role; state near object.
+    Terms can be full words (e.g. may) or stems (e.g. разреш); matching is substring (stem-in-word).
     """
     if not text:
         return 0.0
@@ -30,23 +46,17 @@ def context_boost_score(
     if not tokens:
         return 0.0
 
-    action_set = set(action_terms) if action_terms else set()
-    object_set = set(object_terms) if object_terms else set()
-    modal_set = set(modal_restriction_terms) if modal_restriction_terms else set()
-    role_set = set(role_terms) if role_terms else set()
-    state_set = set(state_terms) if state_terms else set()
-
     boosts = 0.0
     n_windows = 0
     for i in range(len(tokens) - 1):
         end = min(i + window_size, len(tokens))
-        window = set(tokens[i:end])
+        window = tokens[i:end]
         n_windows += 1
-        if action_set and object_set and (window & action_set) and (window & object_set):
+        if action_terms and object_terms and _window_has_term_match(window, action_terms) and _window_has_term_match(window, object_terms):
             boosts += 1.0
-        if modal_set and role_set and (window & modal_set) and (window & role_set):
+        if modal_restriction_terms and role_terms and _window_has_term_match(window, modal_restriction_terms) and _window_has_term_match(window, role_terms):
             boosts += 1.0
-        if state_set and object_set and (window & state_set) and (window & object_set):
+        if state_terms and object_terms and _window_has_term_match(window, state_terms) and _window_has_term_match(window, object_terms):
             boosts += 1.0
 
     if n_windows == 0:

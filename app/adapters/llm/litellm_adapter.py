@@ -296,14 +296,19 @@ def _parse_or_repair(
     prompt_cfg: Any,
     repair_max: int,
 ) -> tuple[list, str | None]:
-    """Parse content; on ValidationError try repair once. Returns (drafts, repaired_json or None)."""
+    """Parse content; on ValidationError try repair once. Returns (drafts, repaired_json or None).
+    If JSON is invalid and repair fails or is not attempted, skip the chunk (return empty drafts)."""
     try:
         drafts = parse_extraction_response(content, schema_version)
         return drafts, None
-    except ValidationError:
-        if repair_max <= 0:
-            raise
-        repair = adapter.repair_json(content, {"schema_version": schema_version})
-        if repair.success and repair.drafts is not None:
-            return list(repair.drafts), repair.repaired_json
-        raise
+    except ValidationError as e:
+        if repair_max > 0:
+            repair = adapter.repair_json(content, {"schema_version": schema_version})
+            if repair.success and repair.drafts is not None:
+                return list(repair.drafts), repair.repaired_json
+        _LOG.warning(
+            "Skipping chunk: invalid JSON could not be repaired: %s",
+            e,
+            exc_info=False,
+        )
+        return [], None

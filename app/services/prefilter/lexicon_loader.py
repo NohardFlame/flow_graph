@@ -41,6 +41,19 @@ def load_lexicon_file(path: Path) -> list[str]:
     return terms
 
 
+def load_lexicon_file_optional(path: Path) -> list[str]:
+    """Load one lexicon file if it exists; return [] if missing. Same format as load_lexicon_file."""
+    if not path.exists():
+        return []
+    terms: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            t = _normalize_line(line)
+            if t is not None:
+                terms.append(t)
+    return terms
+
+
 def load_seeded_queries(path: Path) -> list[str]:
     """Load seeded queries for TF-IDF (one per line)."""
     if not path.exists():
@@ -51,6 +64,7 @@ def load_seeded_queries(path: Path) -> list[str]:
 def load_lexicons(lexicon_dir: str | Path) -> tuple[dict[str, list[str]], list[str]]:
     """Load all lexicons and seeded queries. Fail fast if directory or any file is missing.
 
+    Optional Russian files (*_ru.txt) are merged into the same category if present.
     Returns:
         (lexicons_by_category, seeded_queries)
         lexicons_by_category keys are stem of filename without .txt, e.g. 'action_verbs'.
@@ -63,9 +77,14 @@ def load_lexicons(lexicon_dir: str | Path) -> tuple[dict[str, list[str]], list[s
     for filename in LEXICON_FILES:
         path = base / filename
         key = filename.removesuffix(".txt")
-        lexicons[key] = load_lexicon_file(path)
+        terms = load_lexicon_file(path)
+        ru_path = base / f"{key}_ru.txt"
+        terms = terms + load_lexicon_file_optional(ru_path)
+        lexicons[key] = terms
 
     queries_path = base / SEEDED_QUERIES_FILE
     seeded_queries = load_seeded_queries(queries_path)
+    ru_queries_path = base / "seeded_queries_ru.txt"
+    seeded_queries = seeded_queries + load_lexicon_file_optional(ru_queries_path)
 
     return lexicons, seeded_queries

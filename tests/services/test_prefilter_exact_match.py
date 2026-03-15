@@ -30,3 +30,14 @@ def test_find_matches_no_match():
     matched, counts = find_matches("hello world", {"action_verbs": ["perform", "execute"]})
     assert matched == []
     assert counts == {}
+
+
+def test_find_matches_russian_stem_in_full_form():
+    """Russian stem in lexicon matches text containing a full word form (substring match)."""
+    text = "Пользователю разрешается копировать документ."
+    lexicons = {"permission_terms": ["разреш"], "action_verbs": ["копир"], "object_domain_terms": ["документ"]}
+    matched, counts = find_matches(text, lexicons)
+    assert "разреш" in matched or any("разреш" in m for m in matched)
+    assert counts.get("permission_terms", 0) >= 1
+    assert counts.get("action_verbs", 0) >= 1
+    assert counts.get("object_domain_terms", 0) >= 1

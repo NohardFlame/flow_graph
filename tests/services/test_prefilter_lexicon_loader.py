@@ -7,6 +7,7 @@ from app.core.errors import ConfigError
 from app.services.prefilter.lexicon_loader import (
     LEXICON_FILES,
     load_lexicon_file,
+    load_lexicon_file_optional,
     load_lexicons,
     load_seeded_queries,
 )
@@ -52,3 +53,29 @@ def test_load_lexicon_file_skips_comments_and_empty(tmp_path):
     (tmp_path / "test.txt").write_text("# comment\n\n  foo  \nbar\n# again\n", encoding="utf-8")
     terms = load_lexicon_file(tmp_path / "test.txt")
     assert terms == ["foo", "bar"]
+
+
+def test_load_lexicon_file_optional_returns_empty_if_missing(tmp_path):
+    assert load_lexicon_file_optional(tmp_path / "nonexistent.txt") == []
+
+
+def test_load_lexicons_merges_optional_ru_file(tmp_path):
+    """When *_ru.txt exists, its terms are merged into the same category."""
+    for f in LEXICON_FILES:
+        (tmp_path / f).write_text("en_term\n", encoding="utf-8")
+    (tmp_path / "seeded_queries.txt").write_text("query\n", encoding="utf-8")
+    (tmp_path / "action_verbs_ru.txt").write_text("разреш\nвыполн\n", encoding="utf-8")
+    lexicons, queries = load_lexicons(tmp_path)
+    assert "en_term" in lexicons["action_verbs"]
+    assert "разреш" in lexicons["action_verbs"]
+    assert "выполн" in lexicons["action_verbs"]
+
+
+def test_load_lexicons_missing_ru_file_does_not_raise(tmp_path):
+    """Missing optional *_ru.txt is ignored; only required files must exist."""
+    for f in LEXICON_FILES:
+        (tmp_path / f).write_text("term\n", encoding="utf-8")
+    (tmp_path / "seeded_queries.txt").write_text("query\n", encoding="utf-8")
+    lexicons, queries = load_lexicons(tmp_path)
+    assert "action_verbs" in lexicons
+    assert lexicons["action_verbs"] == ["term"]

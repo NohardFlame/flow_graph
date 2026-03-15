@@ -94,6 +94,7 @@ else:
     }
 
     Write-Host "API:      http://localhost:8000"
+    Write-Host "ingest_UI:      http://localhost:8000/ui"
     Write-Host "TestGen UI: http://localhost:8765"
     Write-Host "Worker and UI are running in background. Close their windows or stop processes to exit."
 } finally {
